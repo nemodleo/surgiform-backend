@@ -4,6 +4,7 @@ from surgiform.external.openai_client import get_chat_llm
 from surgiform.core.transform.prompts import SYSTEM_PROMPT
 from surgiform.core.transform.prompts import PROMPTS
 from surgiform.api.models.base import ConsentBase
+from surgiform.api.models.base import SurgeryDetails
 from surgiform.api.models.transform import TransformMode
 
 
@@ -19,6 +20,14 @@ def run_transform(consents: ConsentBase, mode: TransformMode) -> ConsentBase:
     )
     chain = prompt_template | get_chat_llm() | StrOutputParser()
 
-    consent_dict = consents.model_dump()
-    transformed_dict = {k: chain.invoke({"consent_text": text}) for k, text in consent_dict.items()}
+    transformed_dict = {}
+    for key, value in consents.model_dump().items():
+        if key == "surgery_method_content":
+            transformed_dict[key] = SurgeryDetails(**{
+                inner_key: chain.invoke({"consent_text": inner_value})
+                for inner_key, inner_value in value.items()
+            })
+        else:
+            transformed_dict[key] = chain.invoke({"consent_text": value})
+
     return ConsentBase(**transformed_dict)
