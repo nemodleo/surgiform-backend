@@ -23,6 +23,66 @@ test-health:
 	curl -X GET http://localhost:8000/health
 
 
+test-chat-session:
+	echo '\
+{ \
+  "system_prompt": "당신은 의료 전문가입니다. 친절하고 정확한 답변을 제공해주세요." \
+}' | \
+	curl -X POST http://localhost:8000/chat/session \
+	     -H "Content-Type: application/json" \
+	     -d @-
+
+test-chat:
+	echo '\
+{ \
+  "message": "안녕하세요! 수술에 대해 궁금한 것이 있어요." \
+}' | \
+	curl -X POST http://localhost:8000/chat \
+	     -H "Content-Type: application/json" \
+	     -d @-
+
+test-chat-with-session:
+	echo '\
+{ \
+  "message": "수술 후 회복 기간은 얼마나 걸리나요?", \
+  "conversation_id": "$(CHAT_ID)" \
+}' | \
+	curl -X POST http://localhost:8000/chat \
+	     -H "Content-Type: application/json" \
+	     -d @-
+
+test-chat-history:
+	curl -X GET http://localhost:8000/chat/$(CHAT_ID)/history
+
+test-chat-list:
+	curl -X GET http://localhost:8000/chat/sessions
+
+test-chat-delete:
+	curl -X DELETE http://localhost:8000/chat/$(CHAT_ID)
+
+
+# 채팅 전체 플로우 테스트
+test-chat-flow:
+	@echo "=== 1단계: 채팅 세션 생성 ==="
+	@echo '{"system_prompt": "당신은 의료 전문가입니다."}' | \
+	curl -s -X POST http://localhost:8000/chat/session \
+	     -H "Content-Type: application/json" \
+	     -d @- | jq '.'
+	@echo ""
+	@echo "=== 2단계: 첫 번째 메시지 전송 ==="
+	@echo '{"message": "안녕하세요!"}' | \
+	curl -s -X POST http://localhost:8000/chat \
+	     -H "Content-Type: application/json" \
+	     -d @- | jq '.'
+	@echo ""
+	@echo ""
+	@echo "=== 3단계: 채팅 세션 목록 조회 ==="
+	@curl -s -X GET http://localhost:8000/chat/sessions | jq '.'
+	@echo ""
+	@echo "✅ 채팅 테스트 완료!"
+	@echo "💡 특정 세션으로 테스트하려면: make test-chat-with-session CHAT_ID=your-session-id"
+
+
 test-consent:
 	echo '\
 { \
@@ -55,11 +115,6 @@ test-consent:
 	curl -X POST http://localhost:8000/consent \
 	     -H "Content-Type: application/json" \
 	     -d @-
-
-# test-transform:
-# 	curl -X POST http://localhost:8000/transform \
-# 		-H "Content-Type: application/json" \
-# 		-d '{"consents":{"prognosis_without_surgery":"수술 수술 수술 수술 수술 중 출혈 가능성 및 감염 등의 합병증이 발생할 수 있습니다.","alternative_treatments":"수술 수술 수술 수술 수술 중 출혈 가능성 및 감염 등의 합병증이 발생할 수 있습니다.","surgery_purpose_necessity_effect":"수술 수술 수술 수술 수술 중 출혈 가능성 및 감염 등의 합병증이 발생할 수 있습니다.","surgery_method_content":"수술 수술 수술 수술 수술 중 출혈 가능성 및 감염 등의 합병증이 발생할 수 있습니다.","possible_complications_sequelae":"수술 수술 수술 수술 수술 중 출혈 가능성 및 감염 등의 합병증이 발생할 수 있습니다.","emergency_measures":"수술 수술 수술 수술 수술 중 출혈 가능성 및 감염 등의 합병증이 발생할 수 있습니다.","mortality_risk":"수술 수술 수술 수술 수술 중 출혈 가능성 및 감염 등의 합병증이 발생할 수 있습니다."},"mode":"simplify"}'
 
 test-transform:
 	echo '\
