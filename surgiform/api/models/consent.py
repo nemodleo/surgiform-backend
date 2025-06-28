@@ -5,6 +5,7 @@ from pydantic import BaseModel
 from pydantic import Field
 from pydantic import constr
 
+from surgiform.api.models.base import ConsentBase
 
 # -------------------------------------------------
 # 1) 보조 Enum / 타입
@@ -79,4 +80,4 @@ class ConsentGenerateOut(BaseModel):
     """
     수술동의서 생성 결과
     """
-    consent_text: str = Field(..., description="완성된 수술동의서 본문")
+    consents: ConsentBase = Field(..., description="수술동의서")
