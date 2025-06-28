@@ -7,6 +7,8 @@ def generate_consent(payload: ConsentGenerateIn) -> ConsentBase:
     Graph-RAG 파이프라인 준비 전 임시 동의서 목업
     """
 
+    # TODO possum_score
+
     return ConsentBase(
         prognosis_without_surgery=f"{payload.diagnosis}에 대해 수술을 시행하지 않을 경우, 증상이 지속되거나 악화될 수 있으며, 합병증이 발생할 위험이 있습니다. 환자의 현재 상태({payload.patient_condition})를 고려할 때 적절한 치료가 필요합니다.",
         alternative_treatments=f"{payload.diagnosis} 치료를 위한 다른 방법으로는 약물치료, 물리치료, 방사선치료 등이 있으나, 환자의 상태와 진단을 종합적으로 고려했을 때 수술적 치료가 가장 적합한 것으로 판단됩니다.",

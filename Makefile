@@ -1,4 +1,6 @@
-NEO4J_PASS=surgiform
+# .env 파일에서 환경변수 로드
+include .env
+export
 
 install:
 	poetry install
@@ -138,9 +140,22 @@ test-transform:
 	     -H "Content-Type: application/json" \
 	     -d @-
 
+uptodate-crawl:
+	poetry run python -m surgiform.core.ingest.uptodate.crawler
+
+uptodate-crawl-cron:
+	# 매일 새벽 3시에 크롤러 재실행
+	0 3 * * * \
+		poetry run python -m surgiform.core.ingest.uptodate.crawler \
+			>> ~/crawler.log 2>&1
+
 neo4j-up:
 	docker run -d --name neo4j \
-		-e NEO4J_AUTH=neo4j/${NEO4J_PASS} \
+		-e NEO4J_AUTH=neo4j/${NEO4J_PASSWORD} \
+		-e NEO4J_PLUGINS='["apoc"]' \
+		-e NEO4J_apoc_export_file_enabled=true \
+		-e NEO4J_apoc_import_file_enabled=true \
+		-e NEO4J_apoc_import_file_use__neo4j__config=true \
 		-p 7687:7687 -p 7474:7474 \
 		neo4j:5.26
 
@@ -154,11 +169,8 @@ neo4j-reset:
 neo4j-logs:
 	docker logs -f neo4j
 
-uptodate-crawl:
-	poetry run python -m surgiform.core.ingest.uptodate.crawler
-
-uptodate-crawl-cron:
-	# 매일 새벽 3시에 크롤러 재실행
-	0 3 * * * \
-		poetry run python -m surgiform.core.ingest.uptodate.crawler \
-		--password ${NEO4J_PASS} >> ~/crawler.log 2>&1
+build-rag:
+	poetry run python -m surgiform.core.ingest.uptodate.medical_graph_rag \
+		--directory data/uptodate/general-surgery \
+		--max-files 10 \
+		--test-queries
