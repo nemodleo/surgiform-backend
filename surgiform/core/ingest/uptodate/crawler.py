@@ -3,12 +3,15 @@ import os
 import dotenv
 import json
 import re
+import logging
+from datetime import datetime
 from pathlib import Path
 from typing import Set
 from urllib.parse import urlparse
 from urllib.parse import urlunparse
 from urllib.parse import ParseResult
 from playwright.async_api import async_playwright
+from tqdm.asyncio import tqdm
 
 dotenv.load_dotenv()
 
@@ -133,27 +136,58 @@ async def process_single_page(
     visited_lock: asyncio.Lock,
     queue_lock: asyncio.Lock,
     browser_lock: asyncio.Lock,
-    browser_context
-) -> None:
+    browser_context,
+    saved_count_lock: asyncio.Lock,
+    saved_pbar: tqdm,
+    queue_pbar: tqdm,
+    saved_count: dict,  # dict로 전달하여 참조로 수정 가능하게 함
+    logger: logging.Logger,
+    worker_id: int,
+    playwright_instance,
+    user_data_dir: str,
+    headless: bool,
+    separate_windows: bool,
+    browser_contexts: list
+) -> tuple[bool, any, any]:  # (성공여부, 새로운 컨텍스트, 새로운 페이지)
     """단일 페이지 처리 워커 함수"""
     try:
-        print(f"🌐 {url}")
+        logger.info(f"페이지 접속: {url}")
         await page.goto(url, wait_until="networkidle", timeout=60_000)
         
         # 페이지 로드 후 검색 페이지로 리다이렉트 되었는지 확인
         current_url = page.url
         if "/contents/search" in current_url or "/login" in current_url:
-            print("🔄 검색 페이지로 리다이렉트 감지됨. 페이지를 재생성합니다...")
+            logger.warning(f"워커 {worker_id}: 리다이렉트 감지됨. 브라우저 창 재시작...")
+            
             async with browser_lock:
+                # 현재 페이지와 컨텍스트 닫기
                 await page.close()
+                if separate_windows:
+                    await browser_context.close()
+                    
+                    # 새로운 브라우저 컨텍스트 생성
+                    new_context = await playwright_instance.chromium.launch_persistent_context(
+                        user_data_dir=f"{user_data_dir}_{worker_id}",
+                        headless=headless
+                    )
+                    
+                    # browser_contexts 리스트 업데이트
+                    browser_contexts[worker_id] = new_context
+                    browser_context = new_context
+                    logger.info(f"워커 {worker_id}: 새로운 브라우저 창 생성 완료")
+                else:
+                    # 탭 모드에서는 컨텍스트는 그대로 두고 페이지만 재생성
+                    pass
+                
+                # 새로운 페이지 생성
                 page = await browser_context.new_page()
             
             # 원래 URL로 다시 이동
             await page.goto(url, wait_until="networkidle", timeout=60_000)
             
     except Exception as e:
-        print(f"⚠️ load failed: {e}")
-        return
+        logger.error(f"페이지 로드 실패: {e}")
+        return False, browser_context, page
 
     has_topic = await page.evaluate(
         """
@@ -186,14 +220,14 @@ async def process_single_page(
         file_path = out_path / filename
         
         if file_path.exists():
-            print(f"    ⏭️ 이미 존재함: {filename}")
-            return  # 파일이 이미 존재하면 스킵
+            logger.info(f"이미 존재하는 파일 스킵: {filename}")
+            return False, browser_context, page
         
-        print(f"    ✅ {url}")
+        logger.info(f"토픽 페이지 발견: {title}")
         try:
             content = await page.locator("#topicContent").inner_html()
         except Exception as e:
-            print(f"    ⚠️ 콘텐츠 추출 실패: {e}")
+            logger.warning(f"콘텐츠 추출 실패: {e}")
             content = ""
 
         data = {
@@ -206,11 +240,19 @@ async def process_single_page(
         try:
             with file_path.open("w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
-            print(f"    💾 저장됨: {filename}")
+            logger.info(f"파일 저장 완료: {filename}")
+            
+            # 저장 성공시 progress bar 업데이트
+            async with saved_count_lock:
+                saved_count[filename] = 1
+                saved_pbar.update(1)
+            
+            return True, browser_context, page
         except Exception as e:
-            print(f"    ❌ 저장 실패: {e}")
+            logger.error(f"파일 저장 실패: {e}")
+            return False, browser_context, page
         
-        return  # 본문 페이지는 링크를 더 탐색하지 않음
+        return False, browser_context, page
 
     # 2) 본문이 없으면 내부 링크 수집 → 큐
     try:
@@ -230,9 +272,14 @@ async def process_single_page(
         if new_links:
             async with queue_lock:
                 queue.extend(new_links)
+                # 새로운 링크 추가시 progress bar 업데이트
+                queue_pbar.update(len(new_links))
+            logger.info(f"새로운 링크 {len(new_links)}개 발견하여 큐에 추가")
                 
     except Exception as e:
-        print(f"    ⚠️ 링크 수집 실패: {e}")
+        logger.error(f"링크 수집 실패: {e}")
+
+    return False, browser_context, page
 
 
 async def crawl_uptodate_streaming(
@@ -242,20 +289,47 @@ async def crawl_uptodate_streaming(
         domain: str = "www.uptodate.com",
         headless: bool = True,
         clear_cache: bool = False,
-        max_concurrent: int = 5  # 동시 처리할 페이지 수
+        max_concurrent: int = 5,  # 동시 처리할 페이지 수
+        separate_windows: bool = False  # True면 각각 별도 창, False면 탭으로
 ):
     _url = f"{base_url}/{target_field}" if target_field else base_url
     visited: Set[str] = set()
     queue: list[str] = [_url]
+    
+    # out_path를 디렉토리로 처리
+    out_path.mkdir(parents=True, exist_ok=True)
+    
+    # 로거 설정
+    log_file = out_path / f"crawler_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+    logger = setup_logger(log_file)
+    logger.info(f"크롤링 시작: {_url}")
     
     # 동시성 제어를 위한 락과 세마포어
     visited_lock = asyncio.Lock()
     queue_lock = asyncio.Lock()
     browser_lock = asyncio.Lock()
     semaphore = asyncio.Semaphore(max_concurrent)
-
-    # out_path를 디렉토리로 처리
-    out_path.mkdir(parents=True, exist_ok=True)
+    
+    # 활성 워커 추적을 위한 변수들
+    active_workers = 0
+    active_workers_lock = asyncio.Lock()
+    shutdown_event = asyncio.Event()
+    last_activity_time = asyncio.get_event_loop().time()
+    activity_lock = asyncio.Lock()
+    IDLE_TIMEOUT = 30  # 30초 동안 모든 워커가 idle이면 종료
+    
+    # Progress bar 추적을 위한 변수들
+    saved_count = {}
+    saved_count_lock = asyncio.Lock()
+    
+    # Progress bars 초기화
+    visited_pbar = tqdm(desc="📋 Visited", unit="pages", position=0, leave=True)
+    queue_pbar = tqdm(desc="📝 Queue", unit="pages", position=1, leave=True)
+    saved_pbar = tqdm(desc="💾 Saved", unit="files", position=2, leave=True)
+    
+    # 초기 큐 크기 설정
+    queue_pbar.total = len(queue)
+    queue_pbar.update(len(queue))
 
     playwright = await async_playwright().start()
     
@@ -266,68 +340,220 @@ async def crawl_uptodate_streaming(
     profile_path = Path(user_data_dir)
     if clear_cache and profile_path.exists():
         import shutil
-        print(f"🗑️ 캐시 초기화: {user_data_dir} 삭제 중...")
+        logger.info(f"캐시 초기화: {user_data_dir} 삭제 중...")
         shutil.rmtree(profile_path)
-        print("✅ 캐시가 초기화되었습니다.")
+        logger.info("캐시가 초기화되었습니다.")
     
     # 프로필 디렉토리 상태 확인
     if profile_path.exists():
-        print(f"💾 기존 프로필 디렉토리 발견: {user_data_dir}")
+        logger.info(f"기존 프로필 디렉토리 발견: {user_data_dir}")
         # 프로필 내용 확인
         profile_files = list(profile_path.glob("*"))
-        print(f"   프로필 파일 개수: {len(profile_files)}")
+        logger.info(f"   프로필 파일 개수: {len(profile_files)}")
     else:
-        print(f"🆕 새로운 프로필 디렉토리 생성 예정: {user_data_dir}")
+        logger.info(f"새로운 프로필 디렉토리 생성 예정: {user_data_dir}")
     
-    print(f"🚀 브라우저 시작 중... (headless: {headless}, 동시처리: {max_concurrent})")
-    browser_context = await playwright.chromium.launch_persistent_context(
-        user_data_dir=user_data_dir,
-        headless=headless
-    )
+    window_type = "별도 창" if separate_windows else "탭"
+    logger.info(f"브라우저 시작 중... (headless: {headless}, 동시처리: {max_concurrent}개 {window_type})")
+    
+    if separate_windows:
+        # 별도 창 모드: 각 워커마다 독립된 브라우저 인스턴스
+        browser_contexts = []
+        for i in range(max_concurrent):
+            context = await playwright.chromium.launch_persistent_context(
+                user_data_dir=f"{user_data_dir}_{i}",  # 각각 다른 프로필
+                headless=headless
+            )
+            browser_contexts.append(context)
+    else:
+        # 탭 모드: 하나의 브라우저에서 여러 탭
+        browser_context = await playwright.chromium.launch_persistent_context(
+            user_data_dir=user_data_dir,
+            headless=headless
+        )
 
-    async def worker():
+    async def worker(worker_id: int = 0):
         """워커 함수: 큐에서 URL을 가져와서 처리"""
-        page = await browser_context.new_page()
+        nonlocal active_workers, last_activity_time, saved_count
+        
+        if separate_windows:
+            context = browser_contexts[worker_id]
+            page = await context.new_page()
+            current_context = context
+        else:
+            page = await browser_context.new_page()
+            current_context = browser_context
+        
+        logger.info(f"워커 {worker_id} 시작")
         
         try:
-            while True:
+            while not shutdown_event.is_set():
                 # 큐에서 URL 가져오기
+                url = None
                 async with queue_lock:
-                    if not queue:
-                        break
-                    url = strip_fragment(queue.pop(0))
+                    if queue:
+                        url = strip_fragment(queue.pop(0))
+                        # 큐에서 제거했으므로 progress bar 업데이트
+                        queue_pbar.update(-1)
+                        # 활동 시간 업데이트
+                        async with activity_lock:
+                            last_activity_time = asyncio.get_event_loop().time()
+                
+                if url is None:
+                    # 큐가 비어있으면 잠시 대기 (30초 타임아웃은 별도 태스크에서 처리)
+                    await asyncio.sleep(2)
+                    continue
                 
                 # 방문 체크
                 async with visited_lock:
                     if url in visited:
                         continue
                     visited.add(url)
+                    # visited에 추가했으므로 progress bar 업데이트
+                    visited_pbar.update(1)
                 
-                # 세마포어로 동시 처리 수 제한
-                async with semaphore:
-                    await process_single_page(
-                        page, url, out_path, visited, queue, 
-                        domain, target_field, visited_lock, queue_lock, 
-                        browser_lock, browser_context
-                    )
+                # 활성 워커 수 증가 및 활동 시간 업데이트
+                async with active_workers_lock:
+                    active_workers += 1
+                async with activity_lock:
+                    last_activity_time = asyncio.get_event_loop().time()
+                
+                try:
+                    # 세마포어로 동시 처리 수 제한
+                    async with semaphore:
+                        # 페이지 처리 및 저장 여부 확인
+                        saved, updated_context, new_page = await process_single_page(
+                            page, url, out_path, visited, queue, 
+                            domain, target_field, visited_lock, queue_lock, 
+                            browser_lock, current_context, saved_count_lock, 
+                            saved_pbar, queue_pbar, saved_count, logger,
+                            worker_id, playwright, user_data_dir, headless, separate_windows, browser_contexts
+                        )
+                        
+                        # 컨텍스트나 페이지가 변경되었으면 업데이트
+                        if updated_context != current_context:
+                            current_context = updated_context
+                            logger.info(f"워커 {worker_id}: 컨텍스트 업데이트됨")
+                        
+                        if new_page != page:
+                            page = new_page
+                            logger.info(f"워커 {worker_id}: 페이지 업데이트됨")
+                        
+                        # saved_count는 process_single_page에서 처리됨
+                                
+                finally:
+                    # 활성 워커 수 감소 및 활동 시간 업데이트
+                    async with active_workers_lock:
+                        active_workers -= 1
+                    async with activity_lock:
+                        last_activity_time = asyncio.get_event_loop().time()
                     
+        except Exception as e:
+            logger.error(f"워커 {worker_id} 오류: {e}")
         finally:
+            logger.info(f"워커 {worker_id} 종료")
             await page.close()
 
+    async def timeout_monitor():
+        """30초 동안 모든 워커가 idle이면 종료 신호"""
+        nonlocal active_workers, last_activity_time
+        
+        while not shutdown_event.is_set():
+            await asyncio.sleep(5)  # 5초마다 체크
+            
+            current_time = asyncio.get_event_loop().time()
+            
+            async with active_workers_lock:
+                current_active = active_workers
+            
+            async with activity_lock:
+                time_since_last_activity = current_time - last_activity_time
+            
+            if current_active == 0 and time_since_last_activity >= IDLE_TIMEOUT:
+                logger.info(f"타임아웃: {IDLE_TIMEOUT}초 동안 모든 워커가 idle 상태 - 종료 신호 발송")
+                shutdown_event.set()
+                break
+
+    async def progress_monitor():
+        """Progress bar 상태 업데이트"""
+        while not shutdown_event.is_set():
+            await asyncio.sleep(1)  # 1초마다 업데이트
+            
+            # 현재 상태 정보 수집
+            async with visited_lock:
+                visited_count = len(visited)
+            async with queue_lock:
+                queue_count = len(queue)
+            async with saved_count_lock:
+                current_saved = len(saved_count)
+            async with active_workers_lock:
+                current_active = active_workers
+                
+            # Progress bar 설명 업데이트
+            visited_pbar.set_description(f"📋 Visited ({visited_count})")
+            queue_pbar.set_description(f"📝 Queue ({queue_count}) [Active: {current_active}]")
+            saved_pbar.set_description(f"💾 Saved ({current_saved})")
+            
+            visited_pbar.refresh()
+            queue_pbar.refresh()
+            saved_pbar.refresh()
+
     try:
-        print(f"🚀 크롤링 시작: {_url}")
+        logger.info("크롤링 워커들 시작")
         
         # 워커 태스크들 생성
-        workers = [asyncio.create_task(worker()) for _ in range(max_concurrent)]
+        if separate_windows:
+            workers = [asyncio.create_task(worker(i)) for i in range(max_concurrent)]
+        else:
+            workers = [asyncio.create_task(worker(i)) for i in range(max_concurrent)]
         
-        # 모든 워커가 완료될 때까지 대기
-        await asyncio.gather(*workers)
+        # 모니터링 태스크들 추가
+        timeout_task = asyncio.create_task(timeout_monitor())
+        progress_task = asyncio.create_task(progress_monitor())
+        
+        # 모든 태스크가 완료될 때까지 대기
+        await asyncio.gather(*workers, timeout_task, progress_task)
 
     finally:
-        await browser_context.close()
+        # Progress bars 정리
+        visited_pbar.close()
+        queue_pbar.close()
+        saved_pbar.close()
+        
+        if separate_windows:
+            for context in browser_contexts:
+                await context.close()
+        else:
+            await browser_context.close()
         await playwright.stop()
     
-    print(f"✅ 크롤링 완료 – {out_path} 에 {len(visited)}개 페이지 처리됨")
+    logger.info(f"크롤링 완료 - {out_path} 에 {len(visited)}개 페이지 처리됨, {len(saved_count)}개 파일 저장됨")
+    
+    # Progress bars가 닫힌 후에만 화면에 최종 결과 출력
+    print(f"✅ 크롤링 완료! 로그: {log_file}")
+    print(f"📁 저장 경로: {out_path}")
+    print(f"📊 처리 결과: {len(visited)}개 페이지 방문, {len(saved_count)}개 파일 저장")
+
+
+def setup_logger(log_file: Path) -> logging.Logger:
+    """로거 설정"""
+    logger = logging.getLogger('uptodate_crawler')
+    logger.setLevel(logging.INFO)
+    
+    # 기존 핸들러 제거
+    for handler in logger.handlers[:]:
+        logger.removeHandler(handler)
+    
+    # 파일 핸들러 추가
+    file_handler = logging.FileHandler(log_file, encoding='utf-8')
+    file_handler.setLevel(logging.INFO)
+    
+    # 포맷터 설정
+    formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+    file_handler.setFormatter(formatter)
+    
+    logger.addHandler(file_handler)
+    return logger
 
 
 if __name__ == "__main__":
@@ -337,7 +563,8 @@ if __name__ == "__main__":
         base_url="https://www.uptodate.com/contents/table-of-contents",
         target_field="general-surgery",
         domain="www.uptodate.com",
-        headless=False,
+        headless=True,
         clear_cache=False,  # 캐시 문제 시 True로 변경
-        max_concurrent=3  # 동시 처리할 페이지 수 (3-5개 권장)
+        max_concurrent=5,  # 동시 처리할 페이지 수 (3-5개 권장)
+        separate_windows=True  # 3개의 별도 창이 열림
     ))
