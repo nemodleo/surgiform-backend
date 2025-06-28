@@ -1,0 +1,35 @@
+[project]
+name = "surgiform"
+version = "0.1.0"
+description = "수술동의서 생성·변환 API"
+authors = [
+    {name = "Hyun Park",email = "nemod.leo@snu.ac.kr"},
+    {name = "Shin Seowon",email = "sswilove1@kaist.ac.kr"},
+    {name = "Kim Minjun",email = "kimminjun67@snu.ac.kr"},
+]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = ">=3.10,<4.0"
+fastapi = "^0.115.14"
+openai = "^1.93.0"
+uvicorn = {extras = ["standard"], version = "^0.34.3"}
+langchain-core = "^0.3.66"
+langchain-community = "^0.3.26"
+langchain-openai  = "^0.3.26"
+elasticsearch = "^9.0.2"
+python-dotenv = "^1.1"
+requests = "^2.32"
+pydantic = "^2.11"
+pydantic-settings = "^2.1"
+
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.2"
+flake8 = "^7.0"
+mypy = "^1.10"
+
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
