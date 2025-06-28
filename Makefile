@@ -14,11 +14,10 @@ lint:
 	poetry run flake8 . \
 	&& poetry run mypy .
 
-test1:
-	curl -X POST http://localhost:8000/consent/transform \
-		-H "Content-Type: application/json" \
-		-d '{"consent_text":"원본 텍스트","mode":"simplify"}'
+test0:
+	curl -X GET http://localhost:8000/health
 
+test1:
 	curl -X POST http://localhost:8000/consent \
 		-H "Content-Type: application/json" \
 		-d @- <<'EOF'
@@ -37,9 +36,9 @@ test1:
 		"special_conditions": {}
 		}
 		EOF
-		{"consent_text":"수술동의서(가제) - 환자: 김환자, 진단명: Cholelithiasis, 예정일: 2025-07-01"}%  
 
 test2:
-	curl -X POST http://localhost:8000/consent/transform \
+	curl -X POST http://localhost:8000/transform \
 		-H "Content-Type: application/json" \
-		-d '{"consent_text":"수술 중 출혈 가능성 및 감염 등의 합병증이 발생할 수 있습니다.","mode":"translate_en"}'
+		-d '{"consent_text":"수술 수술 수술 수술 수술 중 출혈 가능성 및 감염 등의 합병증이 발생할 수 있습니다.","mode":"simplify"}'
+

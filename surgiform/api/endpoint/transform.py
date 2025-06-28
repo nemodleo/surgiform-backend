@@ -7,7 +7,7 @@ router = APIRouter(tags=["transform"])
 
 
 @router.post(
-    "/consent/transform",
+    "/transform",
     response_model=ConsentTransformOut,
     summary="수술동의서 변환",
 )
