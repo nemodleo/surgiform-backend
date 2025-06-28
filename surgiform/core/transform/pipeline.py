@@ -19,6 +19,6 @@ def run_transform(consents: ConsentBase, mode: TransformMode) -> ConsentBase:
     )
     chain = prompt_template | get_chat_llm() | StrOutputParser()
 
-    # LangChain v0.2: invoke(dict)
-    return ConsentBase(chain.invoke({k: text for k, text in consents}))
-    # return chain.invoke({"consent_text": payload.consent_text})
+    consent_dict = consents.model_dump()
+    transformed_dict = {k: chain.invoke({"consent_text": text}) for k, text in consent_dict.items()}
+    return ConsentBase(**transformed_dict)
