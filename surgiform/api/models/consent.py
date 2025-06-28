@@ -58,7 +58,20 @@ class SpecialCondition(BaseModel):
 
 
 # -------------------------------------------------
-# 4) 요청 & 응답 DTO
+# 4) POSSUM Score
+# -------------------------------------------------
+class PossumScore(BaseModel):
+    """
+    POSSUM (Physiological and Operative Severity Score for the 
+    enUmeration of Mortality and Morbidity) Score
+    수술 후 사망률과 이환율 위험도 예측
+    """
+    mortality_risk: float = Field(..., ge=0, le=100, description="사망률 위험도 (%)")
+    morbidity_risk: float = Field(..., ge=0, le=100, description="합병증 위험도 (%)")
+
+
+# -------------------------------------------------
+# 5) 요청 & 응답 DTO
 # -------------------------------------------------
 class ConsentGenerateIn(BaseModel):
     """
@@ -74,6 +87,7 @@ class ConsentGenerateIn(BaseModel):
     participants: list[Participant] = Field(..., min_items=1, description="참여 의료진 목록")
     patient_condition: str = Field(..., description="현재 환자 상태 요약")
     special_conditions: SpecialCondition = Field(default_factory=SpecialCondition)
+    possum_score: PossumScore | None = Field(None, description="POSSUM Score 위험도 평가")
 
 
 class ConsentGenerateOut(BaseModel):

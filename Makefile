@@ -110,6 +110,10 @@ test-consent:
     "renal": false, \
     "drug_abuse": false, \
     "other": null \
+  }, \
+  "possum_score": { \
+    "mortality_risk": 0.22, \
+    "morbidity_risk": 5.47 \
   } \
 }' | \
 	curl -X POST http://localhost:8000/consent \
