@@ -7,17 +7,17 @@ dev:
 		--port 8000 \
 		--host 0.0.0.0
 
-test:
-	poetry run pytest -q
-
 lint:
 	poetry run flake8 . \
 	&& poetry run mypy .
 
-test0:
+test:
+	poetry run pytest -q
+
+test-health:
 	curl -X GET http://localhost:8000/health
 
-test1:
+test-consent:
 	curl -X POST http://localhost:8000/consent \
 		-H "Content-Type: application/json" \
 		-d @- <<'EOF'
@@ -37,8 +37,7 @@ test1:
 		}
 		EOF
 
-test2:
+test-transform:
 	curl -X POST http://localhost:8000/transform \
 		-H "Content-Type: application/json" \
 		-d '{"consent_text":"수술 수술 수술 수술 수술 중 출혈 가능성 및 감염 등의 합병증이 발생할 수 있습니다.","mode":"simplify"}'
-
