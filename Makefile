@@ -140,6 +140,21 @@ test-transform:
     "emergency_measures": "수술 중 또는 수술 후 응급상황 발생 시 즉시 응급처치를 시행하고, 필요시 중환자실 입원, 재수술, 전문의 협진 등의 조치를 취하게 됩니다. 24시간 의료진이 대기하여 응급상황에 대비하고 있습니다.", \
     "mortality_risk": "Cholelithiasis 수술과 관련된 사망 위험은 일반적으로 낮으나, 환자의 연령(45세), 전신상태, 동반질환 등을 종합적으로 고려할 때 약 1% 미만의 위험도가 있을 수 있습니다. 마취 관련 사망 위험도 포함되어 있으며, 모든 안전조치를 통해 위험을 최소화하고 있습니다." \
   }, \
+  "references": { \
+    "prognosis_without_surgery": [], \
+    "alternative_treatments": [], \
+    "surgery_purpose_necessity_effect": [], \
+    "surgery_method_content": { \
+		"overall_description": [], \
+		"estimated_duration": [], \
+		"method_change_or_addition": [], \
+		"transfusion_possibility": [], \
+		"surgeon_change_possibility": [] \
+	}, \
+    "possible_complications_sequelae": [], \
+    "emergency_measures": [], \
+    "mortality_risk": [] \
+  }, \
   "mode": "translate_en" \
 }' | \
 	curl -X POST http://localhost:8000/transform \
@@ -177,5 +192,38 @@ neo4j-logs:
 
 build-rag:
 	poetry run python -m surgiform.core.ingest.uptodate.medical_graph_rag \
-		--directory data/uptodate/general-surgery \
-		--test-queries
+	    --directory data/uptodate/general-surgery
+
+es-up:
+	docker run -d --name es \
+		-e "discovery.type=single-node" \
+		-e "xpack.security.enabled=false" \
+		-p 9200:9200 \
+		docker.elastic.co/elasticsearch/elasticsearch:8.13.0
+
+es-down:
+	docker rm -f es
+
+es-reset:
+	make es-down
+	make es-up
+
+
+run-es:
+	poetry run python -m surgiform.core.ingest.uptodate.medical_es_fast.py
+
+
+# es-index-up:
+# 	curl -X PUT localhost:9200/cost_effect \
+# 		-H "Content-Type: application/json" -d @- <<'JSON'
+# 		{
+# 		"mappings": {
+# 			"properties": {
+# 			"text": {
+# 				"type":            "text",
+# 				"term_vector":     "with_positions_offsets"   // 하이라이트용
+# 			}
+# 			}
+# 		}
+# 		}
+# 		JSON

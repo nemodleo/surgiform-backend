@@ -6,9 +6,11 @@ from surgiform.core.transform.prompts import PROMPTS
 from surgiform.api.models.base import ConsentBase
 from surgiform.api.models.base import SurgeryDetails
 from surgiform.api.models.transform import TransformMode
+from surgiform.api.models.base import ReferenceBase
+from surgiform.api.models.base import SurgeryDetailsReference
 
 
-def run_transform(consents: ConsentBase, mode: TransformMode) -> ConsentBase:
+def run_transform(consents: ConsentBase, references: ReferenceBase, mode: TransformMode) -> tuple[ConsentBase, ReferenceBase]:
     if mode.value not in PROMPTS:
         raise ValueError(f"Unsupported mode: {mode}")
 
@@ -30,4 +32,4 @@ def run_transform(consents: ConsentBase, mode: TransformMode) -> ConsentBase:
         else:
             transformed_dict[key] = chain.invoke({"consent_text": value})
 
-    return ConsentBase(**transformed_dict)
+    return ConsentBase(**transformed_dict), references

@@ -7,6 +7,6 @@ def create_consent(payload: ConsentGenerateIn) -> ConsentGenerateOut:
     """
     수술동의서 생성 오케스트레이터
     """
-    consents = generate_consent(payload)  # type: ignore[arg-type]
+    consents, references = generate_consent(payload)  # type: ignore[arg-type]
 
-    return ConsentGenerateOut(consents=consents)
+    return ConsentGenerateOut(consents=consents, references=references)

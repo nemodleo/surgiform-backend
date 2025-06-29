@@ -9,8 +9,9 @@ def transform_consent(payload: ConsentTransformIn) -> ConsentTransformOut:
     """
     # ① Core 파이프라인 호출 (임시로 에코 반환)
     consents = payload.consents
+    references = payload.references
     mode = payload.mode
-    transformed_consents = run_transform(consents, mode)  # type: ignore[arg-type]
+    transformed_consents, transformed_references = run_transform(consents, references, mode)  # type: ignore[arg-type]
 
     # ② DTO 로 씌워 반환
-    return ConsentTransformOut(transformed_consents=transformed_consents)
+    return ConsentTransformOut(transformed_consents=transformed_consents, transformed_references=transformed_references)
