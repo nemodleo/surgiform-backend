@@ -122,7 +122,11 @@ async def generate_rag_response(processed_payload: ProcessedPayload, task_name: 
         # 결과 통합
         for evidence_block in es_results:
             evidence_blocks.extend([hit["text"] for hit in evidence_block])
-            references.extend([hit["url"] for hit in evidence_block])
+            references.extend([{
+                "url": hit["url"],
+                "title": hit["title"],
+                "text": hit["text"]
+            } for hit in evidence_block])
 
     llm = get_chat_llm()
     prompt = SYSTEM_PROMPT.format(field=task_name)
@@ -135,7 +139,7 @@ async def generate_rag_response(processed_payload: ProcessedPayload, task_name: 
     # XML 태그 제거
     cleaned_content = remove_xml_tags(response.content)
 
-    references = list(set(references))
+    # references = list(set(references))
     return cleaned_content, references
 
 
