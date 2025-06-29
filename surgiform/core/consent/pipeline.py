@@ -1,5 +1,6 @@
 from copy import deepcopy
 from functools import partial
+import re
 
 from surgiform.api.models.consent import ConsentGenerateIn
 from surgiform.api.models.consent import PublicConsentGenerateIn
@@ -10,6 +11,7 @@ from surgiform.api.models.base import SurgeryDetailsReference
 from surgiform.core.ingest.uptodate.run_es import get_es_response
 from surgiform.external.openai_client import get_chat_llm
 from surgiform.external.openai_client import get_key_word_list_from_text
+from surgiform.external.openai_client import translate_text
 from surgiform.api.models.consent import Gender
 
 
@@ -36,6 +38,23 @@ USER_PROMPT = """\
 """
 
 
+def remove_xml_tags(text: str) -> str:
+    """
+    XML 태그를 제거하는 함수
+    예: <emergency_measures>내용</emergency_measures> -> 내용
+    """
+    # XML 태그 패턴: <태그명>내용</태그명>
+    pattern = r'<[^>]+>(.*?)</[^>]+>'
+    matches = re.findall(pattern, text, re.DOTALL)
+    
+    if matches:
+        # 태그 안의 내용만 추출
+        return matches[0].strip()
+    else:
+        # 태그가 없으면 원본 텍스트 반환
+        return text.strip()
+
+
 def preprocess(in_data: ConsentGenerateIn) -> PublicConsentGenerateIn:
     data = deepcopy(in_data).dict()
     data.pop("registration_no", None)
@@ -48,12 +67,15 @@ def generate_rag_response(payload: PublicConsentGenerateIn, task_name: str) -> t
     """
     공통 RAG 로직: 키워드 추출, 문서 검색, LLM 응답 생성
     """
+    # TODO 중복 처리
+    diagnosis = translate_text(payload.diagnosis)
+    surgery_name = translate_text(payload.surgery_name)
     patient_condition_keys = get_key_word_list_from_text(payload.patient_condition)
     special_conditions_other_keys = get_key_word_list_from_text(payload.special_conditions.other)
 
     evidence_blocks = []
     references = []
-    es_query = f"{task_name.replace('_', ' ')} {payload.diagnosis} {payload.surgery_name}" 
+    es_query = f"{task_name.replace('_', ' ')} {diagnosis} {surgery_name}" 
     
     for key_word in [
         f"{payload.age} years old",
@@ -87,8 +109,11 @@ def generate_rag_response(payload: PublicConsentGenerateIn, task_name: str) -> t
     prompt += USER_PROMPT.format(patient_json=payload.model_dump_json(), evidence_block=evidence_blocks)
     response = llm.invoke(prompt)
 
+    # XML 태그 제거
+    cleaned_content = remove_xml_tags(response.content)
+
     references = list(set(references))
-    return response.content, references
+    return cleaned_content, references
 
 
 # Partial 함수들을 사용해서 각 동의서 필드별 함수 생성

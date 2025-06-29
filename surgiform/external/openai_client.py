@@ -65,3 +65,19 @@ Keywords:"""
         keywords = keywords[:max_keywords]
 
     return keywords
+
+
+def translate_text(text: str, target_language: str = "English") -> str:
+    """
+    텍스트를 번역하는 함수
+    """
+    llm = get_chat_llm()
+    prompt = f"""Translate the following text into {target_language}.
+
+    Text:
+    {text}
+
+    Translated text:"""
+
+    response = llm.invoke(prompt)
+    return response.content.strip()
