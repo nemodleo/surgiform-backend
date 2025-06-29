@@ -97,7 +97,7 @@ test-consent:
   "diagnosis": "Cholelithiasis", \
   "surgical_site_mark": "RUQ", \
   "participants": [ \
-    { "is_lead": true, "is_specialist": true, "department": "GS" } \
+    { "name": "박현", "is_specialist": true, "department": "GS" } \
   ], \
   "patient_condition": "Stable", \
   "special_conditions": { \

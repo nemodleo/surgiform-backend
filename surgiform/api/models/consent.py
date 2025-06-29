@@ -25,13 +25,13 @@ BoolOrStr = bool | constr(strip_whitespace=True, min_length=1)
 class Participant(BaseModel):
     """
     참여 의료진 1인에 대한 정보
-    - `is_lead`     : 집도의 여부
+    # - `is_lead`     : 집도의 여부
     - `is_specialist`: 전문의 여부
     - `department`  : 진료과 (예: GS, CS, Anesth)
     - `name`        : 성명 (선택 입력)
     """
     name: str | None = Field(None, description="의료진 성명")
-    is_lead: bool = Field(..., description="집도의 여부")
+    # is_lead: bool = Field(..., description="집도의 여부")
     is_specialist: bool = Field(..., description="전문의 여부")
     department: str = Field(..., description="진료과 명칭")
 

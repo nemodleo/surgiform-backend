@@ -113,7 +113,7 @@ def transform_consent(consent_data, mode):
 def generate_consent(
     surgery_name, registration_no, patient_name, age, gender, scheduled_date,
     diagnosis, surgical_site_mark, patient_condition,
-    is_lead, is_specialist, department,
+    name, is_specialist, department,
     past_history, diabetes, smoking, hypertension, allergy, cardiovascular,
     respiratory, coagulation, medications, renal, drug_abuse, other_conditions,
     mortality_risk, morbidity_risk
@@ -128,7 +128,7 @@ def generate_consent(
         "diagnosis": diagnosis,
         "surgical_site_mark": surgical_site_mark,
         "participants": [
-            {"is_lead": is_lead, "is_specialist": is_specialist, "department": department}
+            {"name": name, "is_specialist": is_specialist, "department": department}
         ],
         "patient_condition": patient_condition,
         "special_conditions": {
@@ -199,7 +199,7 @@ consent_interface = gr.Interface(
         gr.Textbox(label="현재 환자 상태 요약", value="Stable"),
         
         # 참여자 정보
-        gr.Checkbox(label="주치의 여부", value=True),
+        gr.Textbox(label="의료진 성명", value="박현"),
         gr.Checkbox(label="전문의 여부", value=True),
         gr.Textbox(label="진료과", value="GS"),
         
