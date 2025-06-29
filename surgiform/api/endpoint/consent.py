@@ -14,4 +14,4 @@ router = APIRouter(tags=["consent"])
 async def consent_endpoint(
     payload: ConsentGenerateIn,
 ) -> ConsentGenerateOut:
-    return create_consent(payload)
+    return await create_consent(payload)
