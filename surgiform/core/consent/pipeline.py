@@ -63,15 +63,25 @@ def preprocess(in_data: ConsentGenerateIn) -> PublicConsentGenerateIn:
     return PublicConsentGenerateIn(**data)
 
 
-def generate_rag_response(payload: PublicConsentGenerateIn, task_name: str) -> tuple[str, list[str]]:
+class ProcessedPayload:
+    """미리 계산된 공통 데이터를 담는 클래스"""
+    def __init__(self, payload: PublicConsentGenerateIn):
+        self.payload = payload
+        self.diagnosis = translate_text(payload.diagnosis)
+        self.surgery_name = translate_text(payload.surgery_name)
+        self.patient_condition_keys = get_key_word_list_from_text(payload.patient_condition)
+        self.special_conditions_other_keys = get_key_word_list_from_text(payload.special_conditions.other)
+
+
+def generate_rag_response(processed_payload: ProcessedPayload, task_name: str) -> tuple[str, list[str]]:
     """
     공통 RAG 로직: 키워드 추출, 문서 검색, LLM 응답 생성
     """
-    # TODO 중복 처리
-    diagnosis = translate_text(payload.diagnosis)
-    surgery_name = translate_text(payload.surgery_name)
-    patient_condition_keys = get_key_word_list_from_text(payload.patient_condition)
-    special_conditions_other_keys = get_key_word_list_from_text(payload.special_conditions.other)
+    payload = processed_payload.payload
+    diagnosis = processed_payload.diagnosis
+    surgery_name = processed_payload.surgery_name
+    patient_condition_keys = processed_payload.patient_condition_keys
+    special_conditions_other_keys = processed_payload.special_conditions_other_keys
 
     evidence_blocks = []
     references = []
@@ -117,8 +127,8 @@ def generate_rag_response(payload: PublicConsentGenerateIn, task_name: str) -> t
 
 
 # Partial 함수들을 사용해서 각 동의서 필드별 함수 생성
-def _create_consent_func(task_name: str, payload: PublicConsentGenerateIn) -> tuple[str, list[str]]:
-    return generate_rag_response(payload, task_name)
+def _create_consent_func(task_name: str, processed_payload: ProcessedPayload) -> tuple[str, list[str]]:
+    return generate_rag_response(processed_payload, task_name)
 
 get_prognosis_without_surgery = partial(_create_consent_func, "prognosis_without_surgery")
 get_alternative_treatments = partial(_create_consent_func, "alternative_treatments")
@@ -127,7 +137,7 @@ get_possible_complications_sequelae = partial(_create_consent_func, "possible_co
 get_emergency_measures = partial(_create_consent_func, "emergency_measures")
 get_mortality_risk = partial(_create_consent_func, "mortality_risk")
 get_overall_description = partial(_create_consent_func, "overall_description")
-get_estimated_duration = partial(_create_consent_func, "estimated_duration")
+get_estimated_duration = partial(_create_consent_func, "estimated_duration")  
 get_method_change_or_addition = partial(_create_consent_func, "method_change_or_addition")
 get_transfusion_possibility = partial(_create_consent_func, "transfusion_possibility")
 get_surgeon_change_possibility = partial(_create_consent_func, "surgeon_change_possibility")
@@ -138,18 +148,21 @@ def generate_consent(payload: ConsentGenerateIn) -> tuple[ConsentBase, Reference
     Graph-RAG 파이프라인 준비 전 임시 동의서 목업
     """
     deidentified_payload: PublicConsentGenerateIn = preprocess(payload)
-    consents_overall_description, references_overall_description = get_overall_description(deidentified_payload)
-    consents_estimated_duration, references_estimated_duration = get_estimated_duration(deidentified_payload)
-    consents_method_change_or_addition, references_method_change_or_addition = get_method_change_or_addition(deidentified_payload)
-    consents_transfusion_possibility, references_transfusion_possibility = get_transfusion_possibility(deidentified_payload)
-    consents_surgeon_change_possibility, references_surgeon_change_possibility = get_surgeon_change_possibility(deidentified_payload)
+    # 공통 계산을 한 번만 수행
+    processed_payload = ProcessedPayload(deidentified_payload)
+    
+    consents_overall_description, references_overall_description = get_overall_description(processed_payload)
+    consents_estimated_duration, references_estimated_duration = get_estimated_duration(processed_payload)
+    consents_method_change_or_addition, references_method_change_or_addition = get_method_change_or_addition(processed_payload)
+    consents_transfusion_possibility, references_transfusion_possibility = get_transfusion_possibility(processed_payload)
+    consents_surgeon_change_possibility, references_surgeon_change_possibility = get_surgeon_change_possibility(processed_payload)
 
-    consents_prognosis_without_surgery, references_prognosis_without_surgery = get_prognosis_without_surgery(deidentified_payload)
-    consents_alternative_treatments, references_alternative_treatments = get_alternative_treatments(deidentified_payload)
-    consents_surgery_purpose_necessity_effect, references_surgery_purpose_necessity_effect = get_surgery_purpose_necessity_effect(deidentified_payload)
-    consents_possible_complications_sequelae, references_possible_complications_sequelae = get_possible_complications_sequelae(deidentified_payload)
-    consents_emergency_measures, references_emergency_measures = get_emergency_measures(deidentified_payload)
-    consents_mortality_risk, references_mortality_risk = get_mortality_risk(deidentified_payload)
+    consents_prognosis_without_surgery, references_prognosis_without_surgery = get_prognosis_without_surgery(processed_payload)
+    consents_alternative_treatments, references_alternative_treatments = get_alternative_treatments(processed_payload)
+    consents_surgery_purpose_necessity_effect, references_surgery_purpose_necessity_effect = get_surgery_purpose_necessity_effect(processed_payload)
+    consents_possible_complications_sequelae, references_possible_complications_sequelae = get_possible_complications_sequelae(processed_payload)
+    consents_emergency_measures, references_emergency_measures = get_emergency_measures(processed_payload)
+    consents_mortality_risk, references_mortality_risk = get_mortality_risk(processed_payload)
 
     consents_surgery_method_content = SurgeryDetails(
         overall_description=consents_overall_description,
