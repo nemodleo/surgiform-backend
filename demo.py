@@ -24,7 +24,7 @@ def test_health():
         result = response.json()
         
         status = "✅ 정상" if response.status_code == 200 else f"❌ 오류 (상태코드: {response.status_code})"
-        return status, result, f"⏱️ 응답시간: {latency}ms"
+        return status, result, f"⏱️ 응답시간: {latency/1000:.2f}초"
         
     except Exception as e:
         return f"❌ 연결 실패: {str(e)}", {}, "❌ 연결 실패"
@@ -42,7 +42,7 @@ def create_chat_session(system_prompt):
         response.raise_for_status()
         result = response.json()
         
-        return f"✅ 세션 생성 완료", result, f"⏱️ 응답시간: {latency}ms"
+        return f"✅ 세션 생성 완료", result, f"⏱️ 응답시간: {latency/1000:.2f}초"
         
     except Exception as e:
         return f"❌ 세션 생성 실패: {str(e)}", {}, "❌ 연결 실패"
@@ -60,7 +60,7 @@ def send_chat_message(message):
         response.raise_for_status()
         result = response.json()
         
-        return f"✅ 메시지 전송 완료", result, f"⏱️ 응답시간: {latency}ms"
+        return f"✅ 메시지 전송 완료", result, f"⏱️ 응답시간: {latency/1000:.2f}초"
         
     except Exception as e:
         return f"❌ 메시지 전송 실패: {str(e)}", {}, "❌ 연결 실패"
@@ -77,7 +77,7 @@ def get_chat_sessions():
         response.raise_for_status()
         result = response.json()
         
-        return f"✅ 세션 목록 조회 완료", result, f"⏱️ 응답시간: {latency}ms"
+        return f"✅ 세션 목록 조회 완료", result, f"⏱️ 응답시간: {latency/1000:.2f}초"
         
     except Exception as e:
         return f"❌ 세션 목록 조회 실패: {str(e)}", {}, "❌ 연결 실패"
@@ -104,7 +104,7 @@ def transform_consent(consent_data, mode):
         response.raise_for_status()
         result = response.json()
         
-        return f"✅ 변환 완료", result, f"⏱️ 응답시간: {latency}ms"
+        return f"✅ 변환 완료", result, f"⏱️ 응답시간: {latency/1000:.2f}초"
         
     except Exception as e:
         return f"❌ 변환 실패: {str(e)}", {}, "❌ 연결 실패"
@@ -176,7 +176,7 @@ def generate_consent(
             consents["emergency_measures"],
             consents["mortality_risk"],
             result["references"],
-            f"⏱️ API 응답시간: {latency}ms"
+            f"⏱️ API 응답시간: {latency/1000:.2f}초"
         )
     except Exception as e:
         error_msg = f"❌ 오류: {str(e)}"
