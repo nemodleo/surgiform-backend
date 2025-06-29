@@ -1,4 +1,5 @@
 import uuid
+import json
 from datetime import datetime
 from typing import Dict, List
 from surgiform.api.models.chat import (
@@ -10,12 +11,48 @@ from surgiform.api.models.chat import (
     ChatSessionInfo,
     ChatSessionListResponse,
 )
+from surgiform.api.models.base import ConsentBase, ReferenceBase
+from surgiform.api.models.transform import TransformMode
+from surgiform.core.transform.pipeline import run_transform
 from surgiform.external.openai_client import get_chat_llm
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 
 
 # 메모리 기반 대화 저장소 (실제 환경에서는 DB 사용 권장)
 _conversations: Dict[str, List[ChatMessage]] = {}
+
+
+def _detect_modification_intent(message: str) -> bool:
+    """사용자 메시지가 수정 요청인지 판단합니다"""
+    modification_keywords = [
+        "변경", "수정", "바꿔", "고쳐", "바꾸다", "수정하다", "변경하다",
+        "다시 써", "다시 작성", "재작성", "업데이트", "편집", "해줘",
+        "더 쉽게", "쉬운 말로", "간단하게", "요약해", "번역해"
+    ]
+    
+    message_lower = message.lower()
+    return any(keyword in message_lower for keyword in modification_keywords)
+
+
+def _determine_transform_mode(message: str) -> TransformMode:
+    """사용자 메시지에서 변환 모드를 결정합니다"""
+    message_lower = message.lower()
+    
+    if any(word in message_lower for word in ["쉽게", "쉬운", "간단하게", "이해하기 쉽게"]):
+        return TransformMode.simplify
+    elif any(word in message_lower for word in ["요약", "간략", "짧게"]):
+        return TransformMode.summary
+    elif any(word in message_lower for word in ["설명", "용어", "의미"]):
+        return TransformMode.explain
+    elif any(word in message_lower for word in ["영어", "english"]):
+        return TransformMode.translate_en
+    elif any(word in message_lower for word in ["중국어", "중문", "chinese"]):
+        return TransformMode.translate_zh
+    elif any(word in message_lower for word in ["일본어", "일어", "japanese"]):
+        return TransformMode.translate_ja
+    else:
+        # 기본적으로 쉬운말 변환으로 설정
+        return TransformMode.simplify
 
 
 def create_chat_session(payload: ChatSessionRequest) -> ChatSessionResponse:
@@ -57,36 +94,103 @@ def chat_with_ai(payload: ChatRequest) -> ChatResponse:
     )
     history.append(user_message)
     
-    # LangChain 메시지 형식으로 변환
-    messages = []
-    for msg in history:
-        if msg.role == "system":
-            messages.append(SystemMessage(content=msg.content))
-        elif msg.role == "user":
-            messages.append(HumanMessage(content=msg.content))
-        elif msg.role == "assistant":
-            messages.append(AIMessage(content=msg.content))
+    # 수정 요청인지 확인
+    is_modification_request = _detect_modification_intent(payload.message)
     
-    # OpenAI API 호출
-    llm = get_chat_llm()
-    response = llm.invoke(messages)
+    if is_modification_request and payload.consents and payload.references:
+        # 수술 동의서 변환 처리
+        try:
+            transform_mode = _determine_transform_mode(payload.message)
+            
+            # 변환 실행
+            transformed_consents, transformed_references = run_transform(
+                payload.consents, 
+                payload.references, 
+                transform_mode
+            )
+            
+            # AI 응답 메시지 생성
+            ai_response = f"수술 동의서를 '{transform_mode.value}' 모드로 변환했습니다. 변경된 내용을 확인해 주세요."
+            
+            ai_message = ChatMessage(
+                role="assistant",
+                content=ai_response,
+                timestamp=datetime.now()
+            )
+            history.append(ai_message)
+            
+            # 대화 저장
+            _conversations[conversation_id] = history
+            
+            return ChatResponse(
+                message=ai_response,
+                conversation_id=conversation_id,
+                history=history,
+                updated_consents=transformed_consents,
+                updated_references=transformed_references,
+                is_content_modified=True
+            )
+            
+        except Exception as e:
+            error_message = f"수술 동의서 변환 중 오류가 발생했습니다: {str(e)}"
+            
+            ai_message = ChatMessage(
+                role="assistant",
+                content=error_message,
+                timestamp=datetime.now()
+            )
+            history.append(ai_message)
+            
+            # 대화 저장
+            _conversations[conversation_id] = history
+            
+            return ChatResponse(
+                message=error_message,
+                conversation_id=conversation_id,
+                history=history,
+                is_content_modified=False
+            )
     
-    # AI 응답을 히스토리에 추가
-    ai_message = ChatMessage(
-        role="assistant",
-        content=response.content,
-        timestamp=datetime.now()
-    )
-    history.append(ai_message)
-    
-    # 대화 저장
-    _conversations[conversation_id] = history
-    
-    return ChatResponse(
-        message=response.content,
-        conversation_id=conversation_id,
-        history=history
-    )
+    else:
+        # 일반 질문 처리 (기존 로직)
+        # 수술 동의서 내용이 있으면 컨텍스트로 활용
+        context_message = ""
+        if payload.consents:
+            context_message = f"\n\n[참고: 현재 수술 동의서 내용]\n{json.dumps(payload.consents.model_dump(), ensure_ascii=False, indent=2)}"
+        
+        # LangChain 메시지 형식으로 변환
+        messages = []
+        for msg in history:
+            if msg.role == "system":
+                messages.append(SystemMessage(content=msg.content))
+            elif msg.role == "user":
+                # 마지막 사용자 메시지에 컨텍스트 추가
+                content = msg.content + context_message if msg == history[-1] else msg.content
+                messages.append(HumanMessage(content=content))
+            elif msg.role == "assistant":
+                messages.append(AIMessage(content=msg.content))
+        
+        # OpenAI API 호출
+        llm = get_chat_llm()
+        response = llm.invoke(messages)
+        
+        # AI 응답을 히스토리에 추가
+        ai_message = ChatMessage(
+            role="assistant",
+            content=response.content,
+            timestamp=datetime.now()
+        )
+        history.append(ai_message)
+        
+        # 대화 저장
+        _conversations[conversation_id] = history
+        
+        return ChatResponse(
+            message=response.content,
+            conversation_id=conversation_id,
+            history=history,
+            is_content_modified=False
+        )
 
 
 def get_chat_history(conversation_id: str) -> List[ChatMessage]:
