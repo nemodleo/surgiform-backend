@@ -22,6 +22,7 @@ from surgiform.api.models.consent import Gender
 # 로깅 설정
 logger = logging.getLogger(__name__)
 
+
 SYSTEM_PROMPT = """\
 You are an expert in writing surgical consent forms.
 Generate **ONLY** the field <{field}> in **plain, easy-to-understand Korean**, using **5 to 10 sentences** that even a middle school student can understand.  
@@ -83,37 +84,66 @@ class ProcessedPayload:
 
 def is_rate_limit_error(exception):
     """레이트 리밋 관련 오류인지 확인하는 함수"""
-    return (
-        isinstance(exception, openai.RateLimitError) or
-        isinstance(exception, openai.APIError) and hasattr(exception, 'status_code') and exception.status_code == 429 or
-        isinstance(exception, openai.APIConnectionError) or
-        isinstance(exception, openai.APITimeoutError)
-    )
+    # 예외 타입과 메시지를 로깅
+    logger.debug(f"예외 타입 확인: {type(exception).__name__}, 메시지: {str(exception)}")
+    
+    # OpenAI 직접 예외들
+    if isinstance(exception, openai.RateLimitError):
+        logger.debug("OpenAI RateLimitError 감지")
+        return True
+    
+    if isinstance(exception, openai.APIError):
+        if hasattr(exception, 'status_code') and exception.status_code == 429:
+            logger.debug("OpenAI APIError 429 감지")
+            return True
+    
+    if isinstance(exception, openai.APIConnectionError):
+        logger.debug("OpenAI APIConnectionError 감지")
+        return True
+        
+    if isinstance(exception, openai.APITimeoutError):
+        logger.debug("OpenAI APITimeoutError 감지")
+        return True
+    
+    # LangChain에서 래핑된 예외들도 확인
+    exception_str = str(exception).lower()
+    if 'rate limit' in exception_str or 'error code: 429' in exception_str:
+        logger.debug("문자열 패턴으로 레이트 리밋 감지")
+        return True
+        
+    # 일반적인 Exception에서 rate limit 관련 메시지 확인
+    if hasattr(exception, 'response') and hasattr(exception.response, 'status_code'):
+        if exception.response.status_code == 429:
+            logger.debug("HTTP 429 상태 코드 감지")
+            return True
+    
+    logger.debug("레이트 리밋 오류가 아님")
+    return False
 
 
 def log_retry_attempt(retry_state):
     """재시도 시도 시 로그를 출력하는 함수"""
-    # retry_state.args에서 task_name 추출 (두 번째 인자)
+    # retry_state.args에서 task_name 추출 (첫 번째 인자)
     task_name = "unknown"
-    if retry_state.args and len(retry_state.args) > 1:
-        task_name = retry_state.args[1]  # task_name은 두 번째 파라미터
+    if retry_state.args and len(retry_state.args) > 0:
+        task_name = retry_state.args[0]  # task_name은 첫 번째 파라미터
     
     logger.warning(f"OpenAI API 오류로 인한 재시도 - 작업: '{task_name}', 시도: {retry_state.attempt_number}회차, "
                   f"다음 재시도까지 대기: {retry_state.next_action.sleep if retry_state.next_action else 0}초")
 
 
-@retry(
-    wait=wait_exponential(multiplier=2, min=4, max=60),
-    stop=stop_after_attempt(5),
-    retry=is_rate_limit_error,
-    before_sleep=log_retry_attempt
-)
-async def generate_rag_response(processed_payload: ProcessedPayload, task_name: str) -> tuple[str, list[str]]:
+async def generate_rag_response(processed_payload: ProcessedPayload, task_name: str, attempt_number: int = 1) -> tuple[str, list[str]]:
     """
     공통 RAG 로직: 키워드 추출, 문서 검색, LLM 응답 생성 (Async 버전 + 병렬 ES 검색)
     """
     try:
-        logger.debug(f"작업 '{task_name}' 시작")
+        # 첫 번째 시도는 gpt-4.1, 재시도부터는 gpt-3.5-turbo 사용
+        model_name = "gpt-4.1" if attempt_number == 1 else "gpt-3.5-turbo"
+        
+        if attempt_number > 1:
+            logger.info(f"재시도 중 - 작업 '{task_name}'에서 gpt-3.5-turbo 사용 (시도: {attempt_number})")
+        
+        logger.debug(f"작업 '{task_name}' 시작 (시도: {attempt_number}, 모델: {model_name})")
         payload = processed_payload.payload
         diagnosis = processed_payload.diagnosis
         surgery_name = processed_payload.surgery_name
@@ -163,13 +193,13 @@ async def generate_rag_response(processed_payload: ProcessedPayload, task_name: 
                     "text": hit["text"]
                 } for hit in evidence_block])
 
-        llm = get_chat_llm()
+        llm = get_chat_llm(model_name=model_name)
         prompt = SYSTEM_PROMPT.format(field=task_name)
         evidence_blocks = "\n\n".join(evidence_blocks)
         prompt += USER_PROMPT.format(patient_json=payload.model_dump_json(), evidence_block=evidence_blocks)
         
         # LangChain의 async invoke 사용
-        logger.debug(f"작업 '{task_name}' OpenAI API 호출 중...")
+        logger.debug(f"작업 '{task_name}' OpenAI API 호출 중... (모델: {model_name})")
         response = await llm.ainvoke(prompt)
 
         # XML 태그 제거
@@ -186,8 +216,28 @@ async def generate_rag_response(processed_payload: ProcessedPayload, task_name: 
 
 
 # Async partial 함수들을 사용해서 각 동의서 필드별 함수 생성
+@retry(
+    wait=wait_exponential(multiplier=2, min=4, max=60),
+    stop=stop_after_attempt(5),
+    retry=is_rate_limit_error,
+    before_sleep=log_retry_attempt
+)
 async def _create_consent_func(task_name: str, processed_payload: ProcessedPayload) -> tuple[str, list[str]]:
-    return await generate_rag_response(processed_payload, task_name)
+    # tenacity retry context에서 현재 시도 횟수를 가져오기 위한 트릭
+    import inspect
+    frame = inspect.currentframe()
+    attempt_number = 1
+    try:
+        # 현재 실행 중인 함수의 프레임에서 retry 상태 확인
+        for f in inspect.getouterframes(frame):
+            if 'retry_state' in f.frame.f_locals:
+                retry_state = f.frame.f_locals['retry_state']
+                attempt_number = retry_state.attempt_number
+                break
+    finally:
+        del frame
+    
+    return await generate_rag_response(processed_payload, task_name, attempt_number)
 
 async def get_prognosis_without_surgery(processed_payload: ProcessedPayload) -> tuple[str, list[str]]:
     return await _create_consent_func("prognosis_without_surgery", processed_payload)
