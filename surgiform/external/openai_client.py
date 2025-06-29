@@ -8,12 +8,15 @@ import openai
 
 
 @lru_cache
-def get_chat_llm() -> BaseChatModel:
+def get_chat_llm(
+        model_name: str = "gpt-4.1",
+        temperature: float = 0.2
+) -> BaseChatModel:
     """싱글턴 ChatOpenAI 인스턴스 반환 (gpt-4.1, temperature 0.2)."""
     settings = get_settings()
     return ChatOpenAI(
-        model_name="gpt-4.1",
-        temperature=0.2,
+        model_name=model_name,
+        temperature=temperature,
         api_key=settings.openai_api_key,
     )
 
@@ -27,7 +30,12 @@ def get_openai_client():
 
 
 # TODO: get_key_word_list_from_text
-def get_key_word_list_from_text(text: str | None, max_keywords: int = -1) -> list[str | None]:
+def get_key_word_list_from_text(
+        text: str | None,
+        max_keywords: int = -1,
+        model_name: str = "gpt-3.5-turbo",
+        temperature: float = 0.2
+) -> list[str | None]:
     """
     텍스트에서 키워드를 추출하는 함수
     
@@ -41,7 +49,7 @@ def get_key_word_list_from_text(text: str | None, max_keywords: int = -1) -> lis
     if text is None:
         return []
 
-    llm = get_chat_llm()
+    llm = get_chat_llm(model_name=model_name, temperature=temperature)
     
     prompt = f"""Extract the most important keywords from the following text.
 
@@ -67,11 +75,16 @@ Keywords:"""
     return keywords
 
 
-def translate_text(text: str, target_language: str = "English") -> str:
+def translate_text(
+        text: str,
+        target_language: str = "English",
+        model_name: str = "gpt-3.5-turbo",
+        temperature: float = 0.2
+) -> str:
     """
     텍스트를 번역하는 함수
     """
-    llm = get_chat_llm()
+    llm = get_chat_llm(model_name=model_name, temperature=temperature)
     prompt = f"""Translate the following text into {target_language}.
 
     Text:
