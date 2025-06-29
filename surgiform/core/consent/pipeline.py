@@ -1,50 +1,165 @@
+from copy import deepcopy
+from functools import partial
+
 from surgiform.api.models.consent import ConsentGenerateIn
+from surgiform.api.models.consent import PublicConsentGenerateIn
 from surgiform.api.models.base import ConsentBase
 from surgiform.api.models.base import SurgeryDetails
 from surgiform.api.models.base import ReferenceBase
 from surgiform.api.models.base import SurgeryDetailsReference
+from surgiform.core.ingest.uptodate.run_es import get_es_response
+from surgiform.external.openai_client import get_chat_llm
+from surgiform.external.openai_client import get_key_word_list_from_text
+from surgiform.api.models.consent import Gender
+
+
+SYSTEM_PROMPT = """\
+You are an expert surgical consent writer. 
+Generate **ONLY** the field <{field}> in concise Korean (2-4 문장). 
+Base your answer on:
+1. Patient‐specific context (JSON).
+2. Evidence sentences (UpToDate) — use only when relevant.
+
+Use official Korean medical terminology, but express it in **plain, easy-to-understand language**. 
+Avoid academic or technical expressions. 
+Never mention patient name or registration number; never quote sentences verbatim.\
+"""
+
+USER_PROMPT = """\
+### PATIENT_CONTEXT
+```json
+{patient_json}
+```
+
+## EVIDENCE_BLOCK
+{evidence_block}
+"""
+
+
+def preprocess(in_data: ConsentGenerateIn) -> PublicConsentGenerateIn:
+    data = deepcopy(in_data).dict()
+    data.pop("registration_no", None)
+    data.pop("patient_name", None)
+
+    return PublicConsentGenerateIn(**data)
+
+
+def generate_rag_response(payload: PublicConsentGenerateIn, task_name: str) -> tuple[str, list[str]]:
+    """
+    공통 RAG 로직: 키워드 추출, 문서 검색, LLM 응답 생성
+    """
+    patient_condition_keys = get_key_word_list_from_text(payload.patient_condition)
+    special_conditions_other_keys = get_key_word_list_from_text(payload.special_conditions.other)
+
+    evidence_blocks = []
+    references = []
+    es_query = f"{task_name.replace('_', ' ')} {payload.diagnosis} {payload.surgery_name}" 
+    
+    for key_word in [
+        f"{payload.age} years old",
+        "male" if payload.gender is Gender.male else "female",
+        f"{payload.surgical_site_mark}",
+        *patient_condition_keys,
+        "past_history" if payload.special_conditions.past_history else None,
+        "diabetes" if payload.special_conditions.diabetes else None,
+        "smoking" if payload.special_conditions.smoking else None,
+        "hypertension" if payload.special_conditions.hypertension else None,
+        "allergy" if payload.special_conditions.allergy else None,
+        "cardiovascular" if payload.special_conditions.cardiovascular else None,
+        "respiratory" if payload.special_conditions.respiratory else None,
+        "coagulation" if payload.special_conditions.coagulation else None,
+        "medications" if payload.special_conditions.medications else None,
+        "renal" if payload.special_conditions.renal else None,
+        "drug_abuse" if payload.special_conditions.drug_abuse else None,
+        *special_conditions_other_keys
+    ]:
+        if key_word is None:
+            continue
+
+        _es_query = f"{es_query} {key_word}"
+        evidence_block = get_es_response(_es_query, k=10, score_threshold=1)
+        evidence_blocks.extend([hit["text"] for hit in evidence_block])
+        references.extend([hit["url"] for hit in evidence_block])
+
+    llm = get_chat_llm()
+    prompt = SYSTEM_PROMPT.format(field=task_name)
+    evidence_blocks = "\n\n".join(evidence_blocks)
+    prompt += USER_PROMPT.format(patient_json=payload.model_dump_json(), evidence_block=evidence_blocks)
+    response = llm.invoke(prompt)
+
+    references = list(set(references))
+    return response.content, references
+
+
+# Partial 함수들을 사용해서 각 동의서 필드별 함수 생성
+def _create_consent_func(task_name: str, payload: PublicConsentGenerateIn) -> tuple[str, list[str]]:
+    return generate_rag_response(payload, task_name)
+
+get_prognosis_without_surgery = partial(_create_consent_func, "prognosis_without_surgery")
+get_alternative_treatments = partial(_create_consent_func, "alternative_treatments")
+get_surgery_purpose_necessity_effect = partial(_create_consent_func, "surgery_purpose_necessity_effect")
+get_possible_complications_sequelae = partial(_create_consent_func, "possible_complications_sequelae")
+get_emergency_measures = partial(_create_consent_func, "emergency_measures")
+get_mortality_risk = partial(_create_consent_func, "mortality_risk")
+get_overall_description = partial(_create_consent_func, "overall_description")
+get_estimated_duration = partial(_create_consent_func, "estimated_duration")
+get_method_change_or_addition = partial(_create_consent_func, "method_change_or_addition")
+get_transfusion_possibility = partial(_create_consent_func, "transfusion_possibility")
+get_surgeon_change_possibility = partial(_create_consent_func, "surgeon_change_possibility")
 
 
 def generate_consent(payload: ConsentGenerateIn) -> tuple[ConsentBase, ReferenceBase]:
     """
     Graph-RAG 파이프라인 준비 전 임시 동의서 목업
     """
+    deidentified_payload: PublicConsentGenerateIn = preprocess(payload)
+    consents_overall_description, references_overall_description = get_overall_description(deidentified_payload)
+    consents_estimated_duration, references_estimated_duration = get_estimated_duration(deidentified_payload)
+    consents_method_change_or_addition, references_method_change_or_addition = get_method_change_or_addition(deidentified_payload)
+    consents_transfusion_possibility, references_transfusion_possibility = get_transfusion_possibility(deidentified_payload)
+    consents_surgeon_change_possibility, references_surgeon_change_possibility = get_surgeon_change_possibility(deidentified_payload)
 
-    # TODO possum_score
-    surgery_method_content = SurgeryDetails(
-        overall_description=f"{payload.surgical_site_mark} 부위에 대한 수술을 시행합니다. 수술은 전신마취 하에 진행되며, 최소침습적 방법을 통해 병변을 제거하고 정상 해부학적 구조를 복원할 예정입니다. 수술 시간은 약 2-4시간 소요될 것으로 예상됩니다.",
-        estimated_duration="약 2-4시간 소요될 것으로 예상됩니다.",
-        method_change_or_addition="수술 방법 변경 및 수술 추가 가능성",
-        transfusion_possibility="수혈 가능성",
-        surgeon_change_possibility="집도의 변경 가능성"
+    consents_prognosis_without_surgery, references_prognosis_without_surgery = get_prognosis_without_surgery(deidentified_payload)
+    consents_alternative_treatments, references_alternative_treatments = get_alternative_treatments(deidentified_payload)
+    consents_surgery_purpose_necessity_effect, references_surgery_purpose_necessity_effect = get_surgery_purpose_necessity_effect(deidentified_payload)
+    consents_possible_complications_sequelae, references_possible_complications_sequelae = get_possible_complications_sequelae(deidentified_payload)
+    consents_emergency_measures, references_emergency_measures = get_emergency_measures(deidentified_payload)
+    consents_mortality_risk, references_mortality_risk = get_mortality_risk(deidentified_payload)
+
+    consents_surgery_method_content = SurgeryDetails(
+        overall_description=consents_overall_description,
+        estimated_duration=consents_estimated_duration,
+        method_change_or_addition=consents_method_change_or_addition,
+        transfusion_possibility=consents_transfusion_possibility,
+        surgeon_change_possibility=consents_surgeon_change_possibility
     )
 
     consents = ConsentBase(
-        prognosis_without_surgery=f"{payload.diagnosis}에 대해 수술을 시행하지 않을 경우, 증상이 지속되거나 악화될 수 있으며, 합병증이 발생할 위험이 있습니다. 환자의 현재 상태({payload.patient_condition})를 고려할 때 적절한 치료가 필요합니다.",
-        alternative_treatments=f"{payload.diagnosis} 치료를 위한 다른 방법으로는 약물치료, 물리치료, 방사선치료 등이 있으나, 환자의 상태와 진단을 종합적으로 고려했을 때 수술적 치료가 가장 적합한 것으로 판단됩니다.",
-        surgery_purpose_necessity_effect=f"본 수술의 목적은 {payload.diagnosis}의 근본적 치료를 통해 환자의 증상을 개선하고 삶의 질을 향상시키는 것입니다. 수술은 질병의 진행을 막고 합병증을 예방하기 위해 필요하며, 성공적인 수술 시 좋은 예후를 기대할 수 있습니다.",
-        surgery_method_content=surgery_method_content,
-        possible_complications_sequelae=f"{payload.diagnosis} 수술과 관련하여 발생 가능한 합병증으로는 출혈, 감염, 마취 관련 합병증, 신경 손상, 혈관 손상 등이 있을 수 있습니다. 또한 수술 부위의 흉터, 일시적 또는 영구적 기능 장애가 발생할 수 있으며, 드물게는 재수술이 필요할 수도 있습니다. 환자의 개별적 상태에 따라 위험도는 달라질 수 있습니다.",
-        emergency_measures="수술 중 또는 수술 후 응급상황 발생 시 즉시 응급처치를 시행하고, 필요시 중환자실 입원, 재수술, 전문의 협진 등의 조치를 취하게 됩니다. 24시간 의료진이 대기하여 응급상황에 대비하고 있습니다.",
-        mortality_risk=f"{payload.diagnosis} 수술과 관련된 사망 위험은 일반적으로 낮으나, 환자의 연령({payload.age}세), 전신상태, 동반질환 등을 종합적으로 고려할 때 약 1% 미만의 위험도가 있을 수 있습니다. 마취 관련 사망 위험도 포함되어 있으며, 모든 안전조치를 통해 위험을 최소화하고 있습니다."
+        prognosis_without_surgery=consents_prognosis_without_surgery,
+        alternative_treatments=consents_alternative_treatments,
+        surgery_purpose_necessity_effect=consents_surgery_purpose_necessity_effect,
+        surgery_method_content=consents_surgery_method_content,
+        possible_complications_sequelae=consents_possible_complications_sequelae,
+        emergency_measures=consents_emergency_measures,
+        mortality_risk=consents_mortality_risk
     )
 
-    surgery_method_content_reference = SurgeryDetailsReference(
-        overall_description=[],
-        estimated_duration=[],
-        method_change_or_addition=[],
-        transfusion_possibility=[],
-        surgeon_change_possibility=[]
+    references_surgery_method_content = SurgeryDetailsReference(
+        overall_description=references_overall_description,
+        estimated_duration=references_estimated_duration,
+        method_change_or_addition=references_method_change_or_addition,
+        transfusion_possibility=references_transfusion_possibility,
+        surgeon_change_possibility=references_surgeon_change_possibility
     )
 
     references = ReferenceBase(
-        prognosis_without_surgery=[],
-        alternative_treatments=[],
-        surgery_purpose_necessity_effect=[],
-        surgery_method_content=surgery_method_content_reference,
-        possible_complications_sequelae=[],
-        emergency_measures=[],
-        mortality_risk=[]
+        prognosis_without_surgery=references_prognosis_without_surgery,
+        alternative_treatments=references_alternative_treatments,
+        surgery_purpose_necessity_effect=references_surgery_purpose_necessity_effect,
+        surgery_method_content=references_surgery_method_content,
+        possible_complications_sequelae=references_possible_complications_sequelae,
+        emergency_measures=references_emergency_measures,
+        mortality_risk=references_mortality_risk
     )
 
     return consents, references

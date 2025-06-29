@@ -74,12 +74,19 @@ class PossumScore(BaseModel):
 # -------------------------------------------------
 # 5) 요청 & 응답 DTO
 # -------------------------------------------------
-class ConsentGenerateIn(BaseModel):
+
+class PrivateConsentGenerateIn(BaseModel):
     """
     수술동의서 생성 요청
     """
     registration_no: str = Field(..., description="등록번호")
     patient_name: str = Field(..., description="환자 성명")
+
+class PublicConsentGenerateIn(BaseModel):
+    """
+    수술동의서 생성 요청
+    """
+    surgery_name: str = Field(..., description="수술 명칭")
     age: int = Field(..., ge=0, le=150)
     gender: Gender
     scheduled_date: date = Field(..., description="수술 예정일")
@@ -89,6 +96,12 @@ class ConsentGenerateIn(BaseModel):
     patient_condition: str = Field(..., description="현재 환자 상태 요약")
     special_conditions: SpecialCondition = Field(default_factory=SpecialCondition)
     possum_score: PossumScore | None = Field(None, description="POSSUM Score 위험도 평가")
+
+class ConsentGenerateIn(PrivateConsentGenerateIn, PublicConsentGenerateIn):
+    """
+    수술동의서 생성 요청
+    """
+    pass
 
 
 class ConsentGenerateOut(BaseModel):

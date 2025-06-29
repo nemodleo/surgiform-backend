@@ -88,6 +88,7 @@ test-chat-flow:
 test-consent:
 	echo '\
 { \
+  "surgery_name": "Cholelithiasis", \
   "registration_no": "123", \
   "patient_name": "김환자", \
   "age": 45, \
@@ -209,8 +210,14 @@ es-reset:
 	make es-up
 
 
+build-es:
+	poetry run python -m surgiform.core.ingest.uptodate.fast_medical_rag \
+		--directory data/uptodate/general-surgery \
+		--workers 8 \
+		--search
+
 run-es:
-	poetry run python -m surgiform.core.ingest.uptodate.medical_es_fast.py
+	poetry run python -m surgiform.core.ingest.uptodate.run_es
 
 
 # es-index-up:
