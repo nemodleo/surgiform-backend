@@ -94,3 +94,32 @@ def translate_text(
 
     response = llm.invoke(prompt)
     return response.content.strip()
+
+def llm_validater(
+        prompt: str,
+        model_name: str = "gpt-3.5-turbo",
+        temperature: float = 0.2,
+        gt_label: str = "Y"
+) -> bool:
+    """
+    LLM을 사용하여 텍스트가 주어진 프롬프트에 적합한지 판단하는 함수
+    """
+    llm = get_chat_llm(model_name=model_name, temperature=temperature)
+    response = llm.invoke(prompt)
+
+    return response.content.strip() == gt_label
+
+
+async def allm_validater(
+        prompt: str,
+        model_name: str = "gpt-3.5-turbo",
+        temperature: float = 0.2,
+        gt_label: str = "Y"
+) -> bool:
+    """
+    LLM을 사용하여 텍스트가 주어진 프롬프트에 적합한지 판단하는 함수 (Async 버전)
+    """
+    llm = get_chat_llm(model_name=model_name, temperature=temperature)
+    response = await llm.ainvoke(prompt)
+
+    return response.content.strip() == gt_label

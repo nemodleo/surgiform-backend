@@ -17,6 +17,8 @@ from surgiform.core.ingest.uptodate.run_es import get_es_response
 from surgiform.external.openai_client import get_chat_llm
 from surgiform.external.openai_client import get_key_word_list_from_text
 from surgiform.external.openai_client import translate_text
+# from surgiform.external.openai_client import llm_validater
+from surgiform.external.openai_client import allm_validater
 from surgiform.api.models.consent import Gender
 
 # 로깅 설정
@@ -183,9 +185,53 @@ async def generate_rag_response(processed_payload: ProcessedPayload, task_name: 
             es_results = await asyncio.gather(
                 *[get_es_response(query, k=10, score_threshold=1) for query in es_queries]
             )
+
+#             # llm validator - 모든 validation을 병렬로 처리
+#             validation_tasks = []
+#             hit_mappings = []  # (result_idx, hit_idx, hit) 매핑 정보 저장
+            
+#             for result_idx, result in enumerate(es_results):
+#                 for hit_idx, hit in enumerate(result):
+#                     prompt = SYSTEM_PROMPT.format(field=task_name)
+#                     user_prompt = """\
+# ### PATIENT_CONTEXT
+# ```json
+# {patient_json}
+# ```
+
+# Determine whether the EVIDENCE_BLOCK contains information that is directly relevant and appropriate for writing the specified section of the surgical consent form, based on the PATIENT_CONTEXT.
+
+# If it is relevant and appropriate, answer with "Y".
+# If it is not relevant, answer with "N".
+
+# Respond with only one letter, either "Y" or "N".
+# Answer:
+# """
+#                     full_prompt = prompt + user_prompt.format(patient_json=payload.model_dump_json(), evidence_block=hit["text"])
+#                     validation_tasks.append(allm_validater(full_prompt))
+#                     hit_mappings.append((result_idx, hit_idx, hit))
+            
+#             # 모든 validation을 병렬로 실행
+#             if validation_tasks:
+#                 logger.debug(f"작업 '{task_name}': {len(validation_tasks)}개의 evidence 병렬 validation 시작")
+#                 validation_results = await asyncio.gather(*validation_tasks)
+                
+#                 # 결과를 원래 구조로 재구성
+#                 filtered_results = [[] for _ in es_results]
+#                 valid_count = 0
+#                 for i, is_valid in enumerate(validation_results):
+#                     if is_valid:
+#                         result_idx, hit_idx, hit = hit_mappings[i]
+#                         filtered_results[result_idx].append(hit)
+#                         valid_count += 1
+                
+#                 logger.debug(f"작업 '{task_name}': validation 완료 - {valid_count}/{len(validation_tasks)}개 evidence 유효")
+#             else:
+#                 filtered_results = []
+            filtered_results = es_results
             
             # 결과 통합
-            for evidence_block in es_results:
+            for evidence_block in filtered_results:
                 evidence_blocks.extend([hit["text"] for hit in evidence_block])
                 references.extend([{
                     "url": hit["url"],
