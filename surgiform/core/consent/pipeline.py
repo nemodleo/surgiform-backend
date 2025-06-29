@@ -26,7 +26,7 @@ Base your answer on:
 
 Use **official Korean medical terms**, but explain them in **simple, everyday language**.  
 Avoid academic, technical, or formal expressions.  
-Do **not** mention the patient’s name or registration number.  
+Do **not** mention the patient's name or registration number.  
 Do **not** quote evidence sentences verbatim.\
 """
 
@@ -43,19 +43,18 @@ USER_PROMPT = """\
 
 def remove_xml_tags(text: str) -> str:
     """
-    XML 태그를 제거하는 함수
-    예: <emergency_measures>내용</emergency_measures> -> 내용
+    XML 태그를 제거하는 함수 (한쪽 태그만 있어도 삭제)
+    예: 
+    - <emergency_measures>내용</emergency_measures> -> 내용
+    - <emergency_measures>내용 -> 내용  
+    - 내용</emergency_measures> -> 내용
     """
-    # XML 태그 패턴: <태그명>내용</태그명>
-    pattern = r'<[^>]+>(.*?)</[^>]+>'
-    matches = re.findall(pattern, text, re.DOTALL)
+    # 모든 XML 태그 제거 (여는 태그, 닫는 태그 모두)
+    # <태그명> 또는 </태그명> 패턴 제거
+    pattern = r'<[^>]*>'
+    cleaned_text = re.sub(pattern, '', text)
     
-    if matches:
-        # 태그 안의 내용만 추출
-        return matches[0].strip()
-    else:
-        # 태그가 없으면 원본 텍스트 반환
-        return text.strip()
+    return cleaned_text.strip()
 
 
 def preprocess(in_data: ConsentGenerateIn) -> PublicConsentGenerateIn:
