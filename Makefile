@@ -14,6 +14,20 @@ dev:
 		--port 8000 \
 		--host 0.0.0.0
 
+deploy-ssl:
+	# sudo apt update
+	# sudo apt install certbot -y
+	sudo certbot certonly --standalone -d api.surgi-form.com
+
+deploy:
+	@UVICORN_PATH=$$(poetry run which uvicorn) && \
+	sudo $$UVICORN_PATH surgiform.deploy.server:app \
+	  --host 0.0.0.0 \
+	  --port 443 \
+	  --ssl-keyfile /etc/letsencrypt/live/api.surgi-form.com/privkey.pem \
+	  --ssl-certfile /etc/letsencrypt/live/api.surgi-form.com/fullchain.pem \
+	  > >(sudo tee /var/log/surgiform_https.log) 2>&1 &
+
 lint:
 	poetry run flake8 . \
 	&& poetry run mypy .
