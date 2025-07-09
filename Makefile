@@ -2,6 +2,9 @@
 include .env
 export
 
+# bash를 기본 쉘로 설정
+SHELL := /bin/bash
+
 install:
 	poetry install
 
