@@ -9,14 +9,18 @@ import openai
 
 @lru_cache
 def get_chat_llm(
-        model_name: str = "gpt-4.1",
+        model_name: str = "gpt-5-mini",
         temperature: float = 0.2
 ) -> BaseChatModel:
-    """싱글턴 ChatOpenAI 인스턴스 반환 (gpt-4.1, temperature 0.2)."""
+    """싱글턴 ChatOpenAI 인스턴스 반환."""
     settings = get_settings()
+    
+    # gpt-5 계열 모델은 temperature=1만 지원하므로 강제 조정
+    actual_temperature = 1.0 if model_name in ["gpt-5", "gpt-5-mini"] else temperature
+    
     return ChatOpenAI(
         model_name=model_name,
-        temperature=temperature,
+        temperature=actual_temperature,
         api_key=settings.openai_api_key,
     )
 
@@ -33,7 +37,7 @@ def get_openai_client():
 def get_key_word_list_from_text(
         text: str | None,
         max_keywords: int = -1,
-        model_name: str = "gpt-3.5-turbo",
+        model_name: str = "gpt-5-mini",
         temperature: float = 0.2
 ) -> list[str | None]:
     """
@@ -49,9 +53,10 @@ def get_key_word_list_from_text(
     if text is None:
         return []
 
-    llm = get_chat_llm(model_name=model_name, temperature=temperature)
-    
-    prompt = f"""Extract the most important keywords from the following text.
+    try:
+        llm = get_chat_llm(model_name=model_name, temperature=temperature)
+        
+        prompt = f"""Extract the most important keywords from the following text.
 
 Text:
 {text}
@@ -61,43 +66,52 @@ keyword1, keyword2, keyword3, ...
 
 Keywords:"""
 
-    response = llm.invoke(prompt)
-    keywords_text = response.content.strip()
+        response = llm.invoke(prompt)
+        keywords_text = response.content.strip()
 
-    # 쉼표로 구분된 키워드를 리스트로 변환
-    keywords = [keyword.strip() for keyword in keywords_text.split(',')]
+        # 쉼표로 구분된 키워드를 리스트로 변환
+        keywords = [keyword.strip() for keyword in keywords_text.split(',')]
 
-    # 빈 문자열 제거 및 최대 개수 제한
-    keywords = [kw for kw in keywords if kw]
-    if max_keywords > 0:
-        keywords = keywords[:max_keywords]
+        # 빈 문자열 제거 및 최대 개수 제한
+        keywords = [kw for kw in keywords if kw]
+        if max_keywords > 0:
+            keywords = keywords[:max_keywords]
 
-    return keywords
+        return keywords
+    except Exception as e:
+        # OpenAI API 할당량 초과나 기타 오류 시 빈 리스트 반환
+        print(f"Keyword extraction failed: {e}")
+        return []
 
 
 def translate_text(
         text: str,
         target_language: str = "English",
-        model_name: str = "gpt-3.5-turbo",
+        model_name: str = "gpt-5-mini",
         temperature: float = 0.2
 ) -> str:
     """
     텍스트를 번역하는 함수
     """
-    llm = get_chat_llm(model_name=model_name, temperature=temperature)
-    prompt = f"""Translate the following text into {target_language}.
+    try:
+        llm = get_chat_llm(model_name=model_name, temperature=temperature)
+        prompt = f"""Translate the following text into {target_language}.
 
-    Text:
-    {text}
+        Text:
+        {text}
 
-    Translated text:"""
+        Translated text:"""
 
-    response = llm.invoke(prompt)
-    return response.content.strip()
+        response = llm.invoke(prompt)
+        return response.content.strip()
+    except Exception as e:
+        # OpenAI API 할당량 초과나 기타 오류 시 원본 텍스트 반환
+        print(f"Translation failed: {e}")
+        return text
 
 def llm_validater(
         prompt: str,
-        model_name: str = "gpt-3.5-turbo",
+        model_name: str = "gpt-5-mini",
         temperature: float = 0.2,
         gt_label: str = "Y"
 ) -> bool:
@@ -112,7 +126,7 @@ def llm_validater(
 
 async def allm_validater(
         prompt: str,
-        model_name: str = "gpt-3.5-turbo",
+        model_name: str = "gpt-5-mini",
         temperature: float = 0.2,
         gt_label: str = "Y"
 ) -> bool:

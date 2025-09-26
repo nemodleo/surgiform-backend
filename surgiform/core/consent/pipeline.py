@@ -25,6 +25,7 @@ from surgiform.api.models.consent import Gender
 logger = logging.getLogger(__name__)
 
 
+
 SYSTEM_PROMPT = """\
 You are an expert in writing surgical consent forms.
 Generate **ONLY** the field <{field}> in **plain, easy-to-understand Korean**, using **5 to 10 sentences** that even a middle school student can understand.  
@@ -76,12 +77,33 @@ def preprocess(in_data: ConsentGenerateIn) -> PublicConsentGenerateIn:
 
 class ProcessedPayload:
     """미리 계산된 공통 데이터를 담는 클래스"""
-    def __init__(self, payload: PublicConsentGenerateIn):
+    def __init__(self, payload: PublicConsentGenerateIn, diagnosis: str, surgery_name: str, patient_condition_keys: list, special_conditions_other_keys: list):
         self.payload = payload
-        self.diagnosis = translate_text(payload.diagnosis)
-        self.surgery_name = translate_text(payload.surgery_name)
-        self.patient_condition_keys = get_key_word_list_from_text(payload.patient_condition)
-        self.special_conditions_other_keys = get_key_word_list_from_text(payload.special_conditions.other)
+        self.diagnosis = diagnosis
+        self.surgery_name = surgery_name
+        self.patient_condition_keys = patient_condition_keys
+        self.special_conditions_other_keys = special_conditions_other_keys
+
+    @classmethod
+    async def create(cls, payload: PublicConsentGenerateIn):
+        """비동기 팩토리 메서드로 병렬 처리"""
+        import asyncio
+        from concurrent.futures import ThreadPoolExecutor
+        
+        # ThreadPoolExecutor를 사용해 동기 함수들을 병렬로 실행
+        loop = asyncio.get_event_loop()
+        
+        tasks = [
+            loop.run_in_executor(None, translate_text, payload.diagnosis),
+            loop.run_in_executor(None, translate_text, payload.surgery_name), 
+            loop.run_in_executor(None, get_key_word_list_from_text, payload.patient_condition),
+            loop.run_in_executor(None, get_key_word_list_from_text, payload.special_conditions.other)
+        ]
+        
+        results = await asyncio.gather(*tasks)
+        diagnosis, surgery_name, patient_condition_keys, special_conditions_other_keys = results
+        
+        return cls(payload, diagnosis, surgery_name, patient_condition_keys, special_conditions_other_keys)
 
 
 def is_rate_limit_error(exception):
@@ -139,11 +161,11 @@ async def generate_rag_response(processed_payload: ProcessedPayload, task_name: 
     공통 RAG 로직: 키워드 추출, 문서 검색, LLM 응답 생성 (Async 버전 + 병렬 ES 검색)
     """
     try:
-        # 첫 번째 시도는 gpt-4.1, 재시도부터는 gpt-3.5-turbo 사용
-        model_name = "gpt-4.1" if attempt_number == 1 else "gpt-3.5-turbo"
+        # 첫 번째 시도는 gpt-5, 재시도부터는 gpt-4.1, 3번째 재시도부터는 gpt-5-mini, 4번째 재시도부터는 gpt-3.5-turbo 사용
+        model_name = "gpt-5" if attempt_number == 1 else "gpt-4.1" if attempt_number == 2 else "gpt-5-mini" if attempt_number == 3 else "gpt-3.5-turbo"
         
         if attempt_number > 1:
-            logger.info(f"재시도 중 - 작업 '{task_name}'에서 gpt-3.5-turbo 사용 (시도: {attempt_number})")
+            logger.info(f"재시도 중 - 작업 '{task_name}'에서 {model_name} 사용 (시도: {attempt_number})")
         
         logger.debug(f"작업 '{task_name}' 시작 (시도: {attempt_number}, 모델: {model_name})")
         payload = processed_payload.payload
@@ -154,6 +176,7 @@ async def generate_rag_response(processed_payload: ProcessedPayload, task_name: 
 
         evidence_blocks = []
         references = []
+        
         es_query = f"{task_name.replace('_', ' ')} {diagnosis} {surgery_name}" 
         
         # 모든 키워드 수집
@@ -256,8 +279,15 @@ async def generate_rag_response(processed_payload: ProcessedPayload, task_name: 
         return cleaned_content, references
         
     except Exception as e:
-        logger.error(f"작업 '{task_name}' 중 오류 발생: {str(e)}")
-        # tenacity가 재시도 여부를 결정하도록 예외를 다시 발생시킴
+        error_msg = str(e)
+        logger.error(f"작업 '{task_name}' 중 오류 발생: {error_msg}")
+        
+        # OpenAI API 할당량 초과 오류인 경우 기본 텍스트 반환
+        if "insufficient_quota" in error_msg or "rate_limit" in error_msg.lower():
+            logger.warning(f"OpenAI API 할당량 초과로 인한 작업 '{task_name}' 실패. 기본 응답 반환.")
+            return f"{task_name.replace('_', ' ')}에 대한 내용을 작성할 수 없습니다. OpenAI API 할당량을 확인해주세요.", []
+        
+        # 기타 오류는 tenacity가 재시도하도록 다시 발생시킴
         raise
 
 
@@ -324,8 +354,8 @@ async def generate_consent(payload: ConsentGenerateIn) -> tuple[ConsentBase, Ref
     Graph-RAG 파이프라인 준비 전 임시 동의서 목업 (Async 병렬 처리 버전)
     """
     deidentified_payload: PublicConsentGenerateIn = preprocess(payload)
-    # 공통 계산을 한 번만 수행
-    processed_payload = ProcessedPayload(deidentified_payload)
+    # 공통 계산을 병렬로 수행
+    processed_payload = await ProcessedPayload.create(deidentified_payload)
     
     # 모든 get_* 함수들을 병렬로 실행 (개별 오류 처리를 위해 return_exceptions=True 사용)
     logger.info("동의서 생성 시작: 모든 섹션을 병렬로 생성 중...")

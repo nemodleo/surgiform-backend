@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import List, Optional, Literal
+from typing import List, Optional, Literal, Any
 from datetime import datetime
 from surgiform.api.models.base import ConsentBase, ReferenceBase
 
@@ -17,8 +17,8 @@ class ChatRequest(BaseModel):
     conversation_id: Optional[str] = Field(default=None, description="대화 ID")
     history: Optional[List[ChatMessage]] = Field(default=[], description="대화 히스토리")
     system_prompt: Optional[str] = Field(default=None, description="시스템 프롬프트")
-    consents: Optional[ConsentBase] = Field(default=None, description="원본 수술동의서")
-    references: Optional[ReferenceBase] = Field(default=None, description="참고 문헌")
+    consents: Optional[Any] = Field(default=None, description="원본 수술동의서")
+    references: Optional[Any] = Field(default=None, description="참고 문헌")
 
 
 class ChatResponse(BaseModel):
