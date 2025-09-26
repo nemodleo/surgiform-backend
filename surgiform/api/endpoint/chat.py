@@ -37,8 +37,22 @@ async def create_session(payload: ChatSessionRequest) -> ChatSessionResponse:
 )
 async def chat(payload: ChatRequest) -> ChatResponse:
     try:
+        print(f"채팅 요청 받음: {payload}")
+        print(f"payload 타입: {type(payload)}")
+        print(f"payload.message: {payload.message}")
+        print(f"payload.conversation_id: {payload.conversation_id}")
+        print(f"payload.history 길이: {len(payload.history) if payload.history else 0}")
+        if payload.history:
+            for i, msg in enumerate(payload.history):
+                print(f"  history[{i}]: role={msg.role}, content={msg.content[:50]}..., timestamp={msg.timestamp}")
+        print(f"payload.consents: {type(payload.consents)}")
+        print(f"payload.references: {type(payload.references)}")
         return chat_with_ai(payload)
     except Exception as e:
+        print(f"채팅 처리 중 오류: {str(e)}")
+        print(f"오류 타입: {type(e)}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"채팅 처리 중 오류가 발생했습니다: {str(e)}")
 
 

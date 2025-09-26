@@ -22,6 +22,7 @@ class ConsentBase(BaseModel):
     possible_complications_sequelae: str = Field(..., description="발생 가능한 합병증/후유증/부작용")
     emergency_measures: str = Field(..., description="문제 발생시 조치사항")
     mortality_risk: str = Field(..., description="진단/수술 관련 사망 위험성")
+    consent_information: str = Field(default="", description="2~8번 항목 제외 기타 동의서 정보")
 
 
 class ReferenceItem(BaseModel):

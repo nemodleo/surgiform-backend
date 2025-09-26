@@ -12,11 +12,11 @@ ES_HOST = os.getenv("ES_HOST")
 logger = logging.getLogger(__name__)
 
 
-def filter_score(response, score_threshold=20):
+def filter_score(response, score_threshold=50):
     return [hit for hit in response['hits']['hits'] if hit['_score'] >= score_threshold]
 
 
-async def get_es_response(query, k=100, score_threshold=20):    
+async def get_es_response(query, k=100, score_threshold=50):    
     """
     Elasticsearch에서 의료 문서 검색
     
@@ -84,7 +84,7 @@ async def get_es_response(query, k=100, score_threshold=20):
 
 
 # 동기 버전도 유지 (기존 코드 호환성을 위해)
-def get_es_response_sync(query, k=100, score_threshold=20):
+def get_es_response_sync(query, k=100, score_threshold=50):
     """
     Elasticsearch에서 의료 문서 검색 (동기 버전)
     """
