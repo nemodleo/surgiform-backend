@@ -1,11 +1,11 @@
-[project]
+[tool.poetry]
 name = "surgiform"
 version = "0.1.0"
 description = "수술동의서 생성·변환 API"
 authors = [
-    {name = "Hyun Park",email = "nemod.leo@snu.ac.kr"},
-    {name = "Shin Seowon",email = "sswilove1@kaist.ac.kr"},
-    {name = "Kim Minjun",email = "kimminjun67@snu.ac.kr"},
+    "Hyun Park <nemod.leo@snu.ac.kr>",
+    "Shin Seowon <sswilove1@kaist.ac.kr>",
+    "Kim Minjun <kimminjun67@snu.ac.kr>"
 ]
 readme = "README.md"
 
