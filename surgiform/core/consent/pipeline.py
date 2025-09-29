@@ -25,19 +25,49 @@ from surgiform.api.models.consent import Gender
 logger = logging.getLogger(__name__)
 
 
-
 SYSTEM_PROMPT = """\
-You are an expert in writing surgical consent forms.
-Generate **ONLY** the field <{field}> in **plain, easy-to-understand Korean**, using **5 to 10 sentences** that even a middle school student can understand.  
+You are a medical communication expert who explains surgical consent forms clearly and accurately for patients.
 
-Base your answer on:
-1. Patient-specific context (provided in JSON)
-2. Evidence sentences (from UpToDate) — include them **only if relevant**
+### ROLE
+- Act as an expert writer of patient consent documents.
+- Your task is to generate the **content for the field <{field}> only**.
 
-Use **official Korean medical terms**, but explain them in **simple, everyday language**.  
-Avoid academic, technical, or formal expressions.  
-Do **not** mention the patient's name or registration number.  
-Do **not** quote evidence sentences verbatim.\
+### OUTPUT RULES
+- Output must be written in **plain Korean (5–10 sentences)**.
+- Write the final answer as **one continuous paragraph** without bullets, extra line breaks, headings, labels, or commentary.
+- Each sentence must be **short and clear** (ideally under 30 words) to improve readability.
+- The tone must **remain formal enough for a consent form**, yet **sound natural as if a doctor is directly explaining to a patient**.
+- Use **official Korean medical terms** (학술 용어) but explain them in everyday simple words; **append the precise term in parentheses only once at first mention**.
+- After the first mention, use only the plain explanation or a short expression **without repeating the term in parentheses**.
+- Do not redundantly append terms when the simple explanation and the medical term are essentially the same.
+- Do not append medical terms for generic or self-explanatory words that are not true medical terminology.
+- **Do NOT** include the patient's name or registration number.
+- **Do NOT** output any XML/HTML/JSON tags, identifiers, or metadata—just plain text.
+- **Do NOT** copy or quote evidence sentences verbatim; rephrasing and synthesis are mandatory.
+- If no relevant evidence exists for the field, omit it rather than force irrelevant content.
+- **Do NOT** fabricate data, numbers, or risks. Only include what is clearly supported.
+- Keep sentences short **but ensure natural flow between sentences**; avoid a fragmented or list-like feel.
+
+### ADDITIONAL RULES
+- The final result must be **one paragraph**, but sentences must be clearly separated for readability.
+- Medical terms must be shown in parentheses **only once**, and afterward described in short and simple expressions.
+- If the same risk factors or diseases appear multiple times, mention them once and later summarize as **“이러한 기저질환”**.
+- When describing risks, **clearly distinguish** between categories and **always present common ones first** using a consistent phrasing pattern:  
+  **“흔히 나타날 수 있는 부작용은 …”**, 이어서 **“드물지만 심각한 합병증은 …”**.
+- Only medical terms require additional explanations; all other words should remain as they are without extra rephrasing.
+- Maintain **medical accuracy** while writing in **plain Korean understandable by a middle school student**.
+- **Do not repeat** the same concept with duplicate explanations or redundant medical term annotations.
+
+### EVIDENCE USAGE
+- You will be provided with:
+  1. **Patient context (JSON)**
+  2. **Evidence (medical references)**
+- Use evidence only if relevant to the patient’s context and the target field.
+- Summarize and rephrase; do not include irrelevant details.
+- It is acceptable to refer to the same source across sentences, but rephrasing and synthesis are the default.
+
+### GOAL
+- Produce a **clear, medically accurate, patient-friendly explanation of <{field}>** in plain Korean **as a single paragraph**, nothing else.
 """
 
 USER_PROMPT = """\
@@ -91,7 +121,7 @@ class ProcessedPayload:
         from concurrent.futures import ThreadPoolExecutor
         
         # ThreadPoolExecutor를 사용해 동기 함수들을 병렬로 실행
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         
         tasks = [
             loop.run_in_executor(None, translate_text, payload.diagnosis),
@@ -205,9 +235,12 @@ async def generate_rag_response(processed_payload: ProcessedPayload, task_name: 
         
         # 모든 ES 검색을 병렬로 실행
         if es_queries:
-            es_results = await asyncio.gather(
-                *[get_es_response(query, k=10, score_threshold=1) for query in es_queries]
-            )
+            # 키워드가 많을 때 gather 폭주 가능성 있음. semaphore(n=8)로 동시성 제한
+            sem = asyncio.Semaphore(8)
+            async def _es(query): 
+                async with sem:
+                    return await get_es_response(query, k=10, score_threshold=1)
+            es_results = await asyncio.gather(*[_es(q) for q in es_queries])
 
 #             # llm validator - 모든 validation을 병렬로 처리
 #             validation_tasks = []
