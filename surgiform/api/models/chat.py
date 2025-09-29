@@ -55,4 +55,25 @@ class ChatSessionInfo(BaseModel):
 class ChatSessionListResponse(BaseModel):
     """채팅 세션 목록 응답"""
     sessions: List[ChatSessionInfo] = Field(..., description="채팅 세션 목록")
-    total_count: int = Field(..., description="전체 세션 개수") 
+    total_count: int = Field(..., description="전체 세션 개수")
+
+
+class EditChatRequest(BaseModel):
+    """채팅 편집 요청"""
+    message: str = Field(..., description="사용자 메시지")
+    conversation_id: Optional[str] = Field(default=None, description="대화 ID")
+    history: Optional[List[ChatMessage]] = Field(default=[], description="대화 히스토리")
+    system_prompt: Optional[str] = Field(default=None, description="시스템 프롬프트")
+    consents: Optional[Any] = Field(default=None, description="원본 수술동의서")
+    references: Optional[Any] = Field(default=None, description="참고 문헌")
+    edit_sections: List[Literal["2", "3", "4", "5-1", "5-2", "5-3", "5-4", "5-5", "6", "7", "8"]] = Field(..., description="수정하고자 하는 섹션 목록")
+
+
+class EditChatResponse(BaseModel):
+    """채팅 편집 응답"""
+    message: str = Field(..., description="AI 응답 메시지")
+    conversation_id: str = Field(..., description="대화 ID")
+    history: List[ChatMessage] = Field(..., description="업데이트된 대화 히스토리")
+    edited_sections: dict[str, str] = Field(..., description="수정된 섹션별 내용")
+    updated_consents: Optional[ConsentBase] = Field(default=None, description="업데이트된 수술동의서")
+    updated_references: Optional[ReferenceBase] = Field(default=None, description="업데이트된 참고 문헌") 
