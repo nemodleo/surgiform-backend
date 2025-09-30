@@ -75,5 +75,5 @@ class EditChatResponse(BaseModel):
     conversation_id: str = Field(..., description="대화 ID")
     history: List[ChatMessage] = Field(..., description="업데이트된 대화 히스토리")
     edited_sections: dict[str, str] = Field(..., description="수정된 섹션별 내용")
-    updated_consents: Optional[ConsentBase] = Field(default=None, description="업데이트된 수술동의서")
+    updated_consents: Optional[Any] = Field(default=None, description="수정된 섹션만 포함된 수술동의서")
     updated_references: Optional[ReferenceBase] = Field(default=None, description="업데이트된 참고 문헌") 
