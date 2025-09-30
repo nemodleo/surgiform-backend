@@ -458,12 +458,49 @@ async def edit_chat_with_ai(payload: EditChatRequest) -> EditChatResponse:
         # 대화 저장
         _conversations[conversation_id] = history
 
+        # 수정된 섹션만 포함하는 딕셔너리 생성
+        updated_consents_partial = None
+        if edited_sections and consents_obj:
+            # 수정된 섹션만 포함하는 딕셔너리 생성
+            updated_consents_partial = {}
+            surgery_method_content = {}
+            
+            # 수정된 섹션들만 복사
+            for section in edited_sections.keys():
+                if section == "2":
+                    updated_consents_partial["prognosis_without_surgery"] = consents_obj.prognosis_without_surgery
+                elif section == "3":
+                    updated_consents_partial["alternative_treatments"] = consents_obj.alternative_treatments
+                elif section == "4":
+                    updated_consents_partial["surgery_purpose_necessity_effect"] = consents_obj.surgery_purpose_necessity_effect
+                elif section.startswith("5-"):
+                    if section == "5-1":
+                        surgery_method_content["overall_description"] = consents_obj.surgery_method_content.overall_description
+                    elif section == "5-2":
+                        surgery_method_content["estimated_duration"] = consents_obj.surgery_method_content.estimated_duration
+                    elif section == "5-3":
+                        surgery_method_content["method_change_or_addition"] = consents_obj.surgery_method_content.method_change_or_addition
+                    elif section == "5-4":
+                        surgery_method_content["transfusion_possibility"] = consents_obj.surgery_method_content.transfusion_possibility
+                    elif section == "5-5":
+                        surgery_method_content["surgeon_change_possibility"] = consents_obj.surgery_method_content.surgeon_change_possibility
+                elif section == "6":
+                    updated_consents_partial["possible_complications_sequelae"] = consents_obj.possible_complications_sequelae
+                elif section == "7":
+                    updated_consents_partial["emergency_measures"] = consents_obj.emergency_measures
+                elif section == "8":
+                    updated_consents_partial["mortality_risk"] = consents_obj.mortality_risk
+            
+            # surgery_method_content가 있으면 추가
+            if surgery_method_content:
+                updated_consents_partial["surgery_method_content"] = surgery_method_content
+
         return EditChatResponse(
             message=ai_response,
             conversation_id=conversation_id,
             history=history,
             edited_sections=edited_sections,
-            updated_consents=consents_obj,
+            updated_consents=updated_consents_partial,
             updated_references=payload.references
         )
 
@@ -485,7 +522,7 @@ async def edit_chat_with_ai(payload: EditChatRequest) -> EditChatResponse:
             conversation_id=conversation_id,
             history=history,
             edited_sections={},
-            updated_consents=payload.consents,
+            updated_consents=None,  # 에러 시에는 수정된 섹션이 없음
             updated_references=payload.references
         )
 
