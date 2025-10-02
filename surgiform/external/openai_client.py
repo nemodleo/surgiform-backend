@@ -19,7 +19,7 @@ def get_chat_llm(
     actual_temperature = 1.0 if model_name in ["gpt-5", "gpt-5-mini"] else temperature
     
     return ChatOpenAI(
-        model_name=model_name,
+        model=model_name,
         temperature=actual_temperature,
         api_key=settings.openai_api_key,
     )

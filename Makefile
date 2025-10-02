@@ -80,6 +80,51 @@ test-consent:
 	     -H "Content-Type: application/json" \
 	     -d @-
 
+test-surgical-extract:
+	echo '{ \
+	  "procedure_name": "시력교정술", \
+	  "max_steps": 2, \
+	  "language": "ko" \
+	}' | \
+	curl -X POST http://localhost:8000/surgical-image/extract-steps \
+	     -H "Content-Type: application/json" \
+	     -d @-
+
+test-surgical-generate-images:
+	echo '{ \
+	  "steps": [ \
+	    { \
+	      "id": "s1", \
+	      "index": 1, \
+	      "title": "Make an incision", \
+	      "desc": "Create a surgical incision in the abdomen", \
+	      "geminiPrompt": "Educational medical illustration, simplified anatomical diagram, clean white background. no excessive realism, no blood/gore, no patient-identifiable features. no logos/branding, no handwritten marks, consistent camera angle across steps. Make an incision: Create a surgical incision in the abdomen. Label key structures only. No text captions or sentences inside the image." \
+	    }, \
+	    { \
+	      "id": "s2", \
+	      "index": 2, \
+	      "title": "Remove the appendix", \
+	      "desc": "Carefully detach and remove the appendix", \
+	      "geminiPrompt": "Educational medical illustration, simplified anatomical diagram, clean white background. no excessive realism, no blood/gore, no patient-identifiable features. no logos/branding, no handwritten marks, consistent camera angle across steps. Remove the appendix: Carefully detach and remove the appendix. Label key structures only. No text captions or sentences inside the image." \
+	    } \
+	  ] \
+	}' | \
+	curl -X POST http://localhost:8000/surgical-image/generate-images \
+	     -H "Content-Type: application/json" \
+	     -d @-
+
+test-surgical-generate:
+	echo '{ \
+	  "procedure_name": "충수절제술", \
+	  "max_steps": 2, \
+	  "language": "ko" \
+	}' | \
+	curl -X POST http://localhost:8000/surgical-image/generate \
+	     -H "Content-Type: application/json" \
+	     -d @-
+
+# Image generation requires GEMINI_API_KEY to be set
+
 # 배포 관련 (Production)
 deploy-ssl:
 	sudo certbot certonly --standalone -d api.surgi-form.com
