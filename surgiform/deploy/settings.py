@@ -15,6 +15,9 @@ class Settings(BaseSettings):
     # --- OpenAI ---
     openai_api_key: str = Field(..., alias="OPENAI_API_KEY")
 
+    # --- Google Gemini ---
+    gemini_api_key: str | None = Field(None, alias="GEMINI_API_KEY")
+
     # --- Elasticsearch ---
     es_host: str = Field("http://localhost:9200", alias="ES_HOST")
     es_user: str | None = Field(None, alias="ES_USER")
