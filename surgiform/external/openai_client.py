@@ -14,10 +14,12 @@ def get_chat_llm(
 ) -> BaseChatModel:
     """싱글턴 ChatOpenAI 인스턴스 반환."""
     settings = get_settings()
-    
+
     # gpt-5 계열 모델은 temperature=1만 지원
-    assert  model_name in ["gpt-5", "gpt-5-mini"] and temperature == 1.0
-    
+    actual_temperature = temperature
+    if model_name in ["gpt-5", "gpt-5-mini", "gpt-5-nano"]:
+        actual_temperature = 1.0
+
     return ChatOpenAI(
         model=model_name,
         temperature=actual_temperature,
