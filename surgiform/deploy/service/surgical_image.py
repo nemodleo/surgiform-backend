@@ -120,7 +120,7 @@ async def extract_surgical_steps(request: StepExtractionRequest) -> StepExtracti
         logger.info(f"수술 단계 추출 시작 [traceId={trace_id}] [procedure={request.procedure_name}]")
 
 
-        llm = get_chat_llm(model_name="gpt-5-mini")
+        llm = get_chat_llm()
 
         user_prompt = f"Procedure: {request.procedure_name}"
 
