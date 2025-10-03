@@ -9,14 +9,14 @@ import openai
 
 @lru_cache
 def get_chat_llm(
-        model_name: str = "gpt-5-mini",
+        model_name: str = "gpt-4.1-mini", # 밸런스 최고: 빠른 속도, 낮은 비용, 안정적 QA.
         temperature: float = 0.2
 ) -> BaseChatModel:
     """싱글턴 ChatOpenAI 인스턴스 반환."""
     settings = get_settings()
     
-    # gpt-5 계열 모델은 temperature=1만 지원하므로 강제 조정
-    actual_temperature = 1.0 if model_name in ["gpt-5", "gpt-5-mini"] else temperature
+    # gpt-5 계열 모델은 temperature=1만 지원
+    assert  model_name in ["gpt-5", "gpt-5-mini"] and temperature == 1.0
     
     return ChatOpenAI(
         model=model_name,
@@ -37,7 +37,7 @@ def get_openai_client():
 def get_key_word_list_from_text(
         text: str | None,
         max_keywords: int = -1,
-        model_name: str = "gpt-5-mini",
+        model_name: str = "gpt-4.1-mini",
         temperature: float = 0.2
 ) -> list[str | None]:
     """
@@ -87,7 +87,7 @@ Keywords:"""
 def translate_text(
         text: str,
         target_language: str = "English",
-        model_name: str = "gpt-5-mini",
+        model_name: str = "gpt-4.1-mini", # 의료·법적 정확성/톤 중요
         temperature: float = 0.2
 ) -> str:
     """
@@ -111,7 +111,7 @@ def translate_text(
 
 def llm_validater(
         prompt: str,
-        model_name: str = "gpt-5-mini",
+        model_name: str = "gpt-4.1-mini", # 의료·법적 정확성/톤 중요
         temperature: float = 0.2,
         gt_label: str = "Y"
 ) -> bool:
@@ -126,7 +126,7 @@ def llm_validater(
 
 async def allm_validater(
         prompt: str,
-        model_name: str = "gpt-5-mini",
+        model_name: str = "gpt-4.1-mini", # 의료·법적 정확성/톤 중요
         temperature: float = 0.2,
         gt_label: str = "Y"
 ) -> bool:

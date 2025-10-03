@@ -191,8 +191,17 @@ async def generate_rag_response(processed_payload: ProcessedPayload, task_name: 
     공통 RAG 로직: 키워드 추출, 문서 검색, LLM 응답 생성 (Async 버전 + 병렬 ES 검색)
     """
     try:
-        # 첫 번째 시도는 gpt-5, 재시도부터는 gpt-4.1, 3번째 재시도부터는 gpt-5-mini, 4번째 재시도부터는 gpt-3.5-turbo 사용
-        model_name = "gpt-5" if attempt_number == 1 else "gpt-4.1" if attempt_number == 2 else "gpt-5-mini" if attempt_number == 3 else "gpt-3.5-turbo"
+        MODEL_ORDER = [
+            "gpt-5",
+            "gpt-5-mini",
+            "gpt-4.1",
+            "gpt-4.1-mini",
+            "gpt-3.5-turbo",
+        ]
+        def get_model_name(attempt: int) -> str:
+            return MODEL_ORDER[min(attempt - 1, len(MODEL_ORDER) - 1)]
+        
+        model_name = get_model_name(attempt_number)
         
         if attempt_number > 1:
             logger.info(f"재시도 중 - 작업 '{task_name}'에서 {model_name} 사용 (시도: {attempt_number})")
